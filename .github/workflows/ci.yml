@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate repository metadata, docs, and Skills
+        run: |
+          python3 scripts/validate_skills.py
+          python3 scripts/validate_docs.py
+          zsh -n scripts/*.sh
+          ruby -e "require 'yaml'; Dir['.github/**/*.yml'].each { |file| YAML.load_file(file); puts \"valid: #{file}\" }"
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          xcodebuild -downloadComponent MetalToolchain
+      - name: Generate project
+        run: |
+          xcodegen generate
+          git diff --exit-code -- AudioSmith.xcodeproj
+      - name: Build and test
+        run: ./scripts/test.sh

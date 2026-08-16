@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+.venv-quantize/
+.env
+DictateAgent/Resources/Model/model.safetensors
+DictateAgent/Resources/Model/*.safetensors
+artifacts/

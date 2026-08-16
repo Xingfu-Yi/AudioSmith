@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      ARCHIVE_PATH: build/AudioSmith.xcarchive
+      EXPORT_PATH: build/export
+      DMG_PATH: build/AudioSmith.dmg
+      KEYCHAIN_PATH: build/signing.keychain-db
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate release metadata and Skills
+        run: |
+          scripts/verify_release_version.sh "$GITHUB_REF_NAME"
+          python3 scripts/validate_skills.py
+          zsh -n scripts/*.sh
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          xcodebuild -downloadComponent MetalToolchain
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$certificate_path" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Test
+        run: |
+          xcodegen generate
+          git diff --exit-code -- AudioSmith.xcodeproj
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project AudioSmith.xcodeproj \
+            -scheme AudioSmith \
+            -derivedDataPath build/DerivedData \
+            -skipPackagePluginValidation
+          xcodebuild \
+            -project AudioSmith.xcodeproj \
+            -scheme AudioSmith \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build/DerivedData \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Archive and export
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          xcodebuild \
+            -project AudioSmith.xcodeproj \
+            -scheme AudioSmith \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            -archivePath "$ARCHIVE_PATH" \
+            -skipPackagePluginValidation \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            OTHER_CODE_SIGN_FLAGS='--timestamp' \
+            archive
+          export_options="$RUNNER_TEMP/ExportOptions.plist"
+          plutil -create xml1 "$export_options"
+          plutil -insert method -string developer-id "$export_options"
+          plutil -insert signingStyle -string manual "$export_options"
+          plutil -insert teamID -string "$TEAM_ID" "$export_options"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$export_options"
+          codesign --verify --deep --strict --verbose=2 "$EXPORT_PATH/DictateAgent.app"
+
+      - name: Create, notarize and staple DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          staging="$RUNNER_TEMP/dmg"
+          mkdir -p "$staging"
+          ditto "$EXPORT_PATH/DictateAgent.app" "$staging/DictateAgent.app"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -fs HFS+ -volname 'Audio Smith' -srcfolder "$staging" -format UDZO "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+          shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_flags=(--generate-notes --verify-tag)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" "${release_flags[@]}"
+          gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" "$DMG_PATH.sha256" --clobber
+
+      - name: Clean signing keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_PATH" || true

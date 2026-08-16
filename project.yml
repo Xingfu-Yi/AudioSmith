@@ -1,0 +1,101 @@
+name: AudioSmith
+configs:
+  Debug: debug
+  Test: debug
+  Release: release
+options:
+  bundleIdPrefix: io.dictateagent
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+packages:
+  MLXAudio:
+    url: https://github.com/Blaizzy/mlx-audio-swift.git
+    revision: 4266f988d170a83017d1e82e2e4654602f277f1d
+settings:
+  base:
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: false
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: true
+    DEAD_CODE_STRIPPING: true
+targets:
+  DictateAgent:
+    type: application
+    platform: macOS
+    sources:
+      - path: DictateAgent
+        excludes:
+          - Resources/Info.plist
+          - Resources/DictateAgent.entitlements
+          - Resources/Skills
+      - path: DictateAgent/Resources/Skills
+        type: folder
+        buildPhase: resources
+      - path: LICENSE
+        buildPhase: resources
+      - path: THIRD_PARTY_NOTICES.md
+        buildPhase: resources
+    dependencies:
+      - package: MLXAudio
+        product: MLXAudioCore
+      - package: MLXAudio
+        product: MLXAudioSTT
+    info:
+      path: DictateAgent/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: $(APP_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: true
+        NSHighResolutionCapable: true
+        NSMicrophoneUsageDescription: Audio Smith 需要使用麦克风进行完全本地的语音转文字；音频不会保存或上传。
+        NSHumanReadableCopyright: Copyright © 2026 Audio Smith contributors. MIT License.
+        NSPrincipalClass: NSApplication
+    entitlements:
+      path: DictateAgent/Resources/DictateAgent.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgent
+        PRODUCT_NAME: DictateAgent
+        PRODUCT_MODULE_NAME: DictateAgent
+        APP_DISPLAY_NAME: Audio Smith
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: false
+      configs:
+        Test:
+          PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgent.TestHost
+          APP_DISPLAY_NAME: Audio Smith Test Host
+  DictateAgentTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: DictateAgentTests
+      - path: Examples/Skills
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: DictateAgent
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgentTests
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  AudioSmith:
+    build:
+      targets:
+        DictateAgent: all
+        DictateAgentTests: [test]
+    test:
+      config: Test
+      targets:
+        - DictateAgentTests
