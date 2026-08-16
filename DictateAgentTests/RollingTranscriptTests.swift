@@ -79,7 +79,7 @@ final class RollingTranscriptTests: XCTestCase {
         )
     }
 
-    func testShortFinalAudioIsPaddedToNativeEncoderWindow() {
+    func testShortFinalAudioIsPaddedToModelMinimumOnly() {
         let samples: [Float] = [0.25, -0.5, 0.75]
         let padded = ASRAudioPadding.trailingSilence(samples, minimumSampleCount: 8)
 
@@ -88,13 +88,27 @@ final class RollingTranscriptTests: XCTestCase {
         XCTAssertEqual(Array(padded.dropFirst(samples.count)), Array(repeating: 0, count: 5))
     }
 
-    func testAudioAtNativeEncoderLengthIsNotPadded() {
+    func testAudioAtModelMinimumLengthIsNotPadded() {
         let samples: [Float] = [0.1, 0.2, 0.3]
 
         XCTAssertEqual(
             ASRAudioPadding.trailingSilence(samples, minimumSampleCount: samples.count),
             samples
         )
+    }
+
+    func testModelMinimumIsHalfASecondRatherThanEncoderWindow() {
+        XCTAssertEqual(ASRAudioPadding.minimumInferenceSeconds, 0.5)
+        XCTAssertEqual(
+            Int(ASRAudioPadding.minimumInferenceSeconds * 16_000),
+            8_000
+        )
+    }
+
+    func testShortCommandUsesSmallerDecodeBudget() {
+        XCTAssertEqual(ASRDecodeBudget.maxTokens(sampleCount: 1 * 16_000), 64)
+        XCTAssertEqual(ASRDecodeBudget.maxTokens(sampleCount: 2 * 16_000), 80)
+        XCTAssertEqual(ASRDecodeBudget.maxTokens(sampleCount: 16 * 16_000), 304)
     }
 
     func testAssemblerRemovesChineseEnglishOverlapWithoutChangingCommittedPrefix() {

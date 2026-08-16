@@ -9,7 +9,8 @@ All notable changes to Audio Smith will be documented here. The project follows 
 - Renamed the user-facing product from Dictate Agent to Audio Smith while preserving the existing bundle identity and data paths for permission compatibility.
 - Isolated the Xcode unit-test host under a `.TestHost` bundle identifier and made the development installer verify the launched `/Applications` executable.
 - Reduced the default rolling refinement window to 16 seconds with a 4-second overlap and 12-second stride to lower release-to-paste latency.
-- Made requests up to 16 seconds use one final pass and padded sub-eight-second final model inputs with trailing silence without changing their real duration.
+- Made requests up to 16 seconds use one final pass, reduced extremely short input padding to Qwen3-ASR's 0.5-second minimum, lowered the short decode token floor, and relaxed the voice gate for brief commands.
+- Replaced the finalizing text in the recording overlay with a compact indeterminate spinner.
 
 ### Added
 

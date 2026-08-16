@@ -14,7 +14,7 @@
 - the base encoder window is 8 seconds and the default refinement window is 16 seconds
 - overlap is derived as 25% of the refinement window; the default is 4 seconds with a 12-second stride
 - requests up to and including 16 seconds run exactly one final decode
-- final requests and tails shorter than 8 seconds are padded only at the model boundary, while reported duration and stitch boundaries remain unpadded
+- extremely short final requests and tails are padded only to the model's 0.5-second minimum, while reported duration and stitch boundaries remain unpadded
 - completed checkpoints run serially and never block microphone capture on the audio callback
 - final text has no duplicate or lost content across rolling-window seams
 - a low-confidence overlap seam falls back to a safe whole-utterance pass

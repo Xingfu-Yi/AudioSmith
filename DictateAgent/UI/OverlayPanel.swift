@@ -69,12 +69,11 @@ private struct OverlayView: View {
                     .foregroundStyle(.white.opacity(0.72))
             } else if state.phase == .finalizing {
                 ProgressView()
+                    .progressViewStyle(.circular)
                     .controlSize(.small)
-                    .tint(.white.opacity(0.8))
-                Text("正在定稿")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .fixedSize()
+                    .tint(.white.opacity(0.88))
+                    .frame(width: 18, height: 18)
+                    .accessibilityLabel("正在处理")
             }
 
             if state.phase == .recording {

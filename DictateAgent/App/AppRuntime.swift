@@ -192,12 +192,13 @@ final class AppRuntime {
         guard state.phase == .recording else { return }
         maxDurationTask?.cancel()
         let capture = audio.stop()
-        guard capture.containedSpeech, capture.duration >= 0.12 else {
+        logger.notice("Recording stopped after \(capture.duration, format: .fixed(precision: 2)) seconds; speech=\(capture.containedSpeech)")
+        guard capture.containedSpeech, capture.duration >= 0.08 else {
             cancelRecording(message: nil)
             return
         }
         state.phase = .finalizing
-        logger.notice("Recording stopped after \(capture.duration, format: .fixed(precision: 2)) seconds; finalizing the rolling tail")
+        logger.notice("Finalizing the rolling tail")
         refinementTask?.cancel()
         let skill = recordingSkill
         refinementTask = Task { [weak self] in

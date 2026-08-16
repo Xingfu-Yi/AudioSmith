@@ -77,9 +77,24 @@ enum RollingWindowPlanner {
 }
 
 enum ASRAudioPadding {
+    /// Qwen3-ASR's chunker only requires half a second of input. The native
+    /// eight-second encoder window is a maximum processing block, not a minimum
+    /// request length. Padding short commands to eight seconds wastes several
+    /// seconds in the audio tower and can dilute very short speech with silence.
+    static let minimumInferenceSeconds = 0.5
+
     static func trailingSilence(_ samples: [Float], minimumSampleCount: Int) -> [Float] {
         guard samples.count < minimumSampleCount else { return samples }
         return samples + Array(repeating: 0, count: minimumSampleCount - samples.count)
+    }
+}
+
+enum ASRDecodeBudget {
+    /// Keep a modest safety margin for the language prefix and punctuation while
+    /// avoiding the old 128-token floor for one- or two-second commands.
+    static func maxTokens(sampleCount: Int, sampleRate: Int = 16_000) -> Int {
+        let audioSeconds = Double(max(0, sampleCount)) / Double(sampleRate)
+        return min(1_024, max(64, Int(ceil(audioSeconds * 16)) + 48))
     }
 }
 
@@ -428,7 +443,7 @@ private final class RollingInferenceSession: @unchecked Sendable {
                 return nil
             }
             let minimumSampleCount = Int(
-                (configuration.baseEncoderWindowSeconds * Double(sampleRate)).rounded()
+                (ASRAudioPadding.minimumInferenceSeconds * Double(sampleRate)).rounded()
             )
             let inferenceAudio = ASRAudioPadding.trailingSilence(
                 audio,
@@ -468,7 +483,10 @@ private final class RollingInferenceSession: @unchecked Sendable {
         isFinal: Bool
     ) -> DecodedRollingWindow {
         let audioSeconds = Double(samples.count) / Double(sampleRate)
-        let maxTokens = min(1_024, max(128, Int(ceil(audioSeconds * 16)) + 64))
+        let maxTokens = ASRDecodeBudget.maxTokens(
+            sampleCount: samples.count,
+            sampleRate: sampleRate
+        )
         let output = model.generate(
             audio: MLXArray(samples),
             maxTokens: maxTokens,

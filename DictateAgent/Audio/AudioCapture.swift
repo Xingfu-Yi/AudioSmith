@@ -18,6 +18,8 @@ final class AudioCapture: @unchecked Sendable {
     private var capturedSamples: [Float] = []
     private var running = false
     private let targetRate = 16_000.0
+    private let speechRMSFloor: Float = 0.006
+    private let minimumVoicedSeconds = 0.06
 
     func start(handler: @escaping SampleHandler) throws {
         guard !running else { return }
@@ -70,7 +72,7 @@ final class AudioCapture: @unchecked Sendable {
             self.statsLock.withLock {
                 self.sampleCount += samples.count
                 self.capturedSamples.append(contentsOf: samples)
-                if rms > 0.012 { self.voicedSampleCount += samples.count }
+                if rms > self.speechRMSFloor { self.voicedSampleCount += samples.count }
                 // Queue encoder work before stop() can take the lock and queue
                 // the final decode, so the last microphone buffer is not lost.
                 handler(samples, min(1, rms * 14))
@@ -90,7 +92,7 @@ final class AudioCapture: @unchecked Sendable {
             running = false
             let result = AudioCaptureResult(
                 duration: Double(sampleCount) / targetRate,
-                containedSpeech: Double(voicedSampleCount) / targetRate >= 0.12,
+                containedSpeech: Double(voicedSampleCount) / targetRate >= minimumVoicedSeconds,
                 samples: capturedSamples
             )
             capturedSamples.removeAll(keepingCapacity: false)
