@@ -49,4 +49,28 @@ final class RefinementValidatorTests: XCTestCase {
             original: "swift is a programming language"
         ))
     }
+
+    func testSkillPronunciationsDoNotCountAsSemanticRewriting() {
+        let skill = DomainSkill(
+            id: "aigc",
+            name: "AIGC 专有名词读法",
+            description: "Correct AIGC terminology.",
+            context: "",
+            terms: [
+                .init(
+                    preferred: "Qwen-Image-Edit",
+                    spokenForms: ["千维 Image Editor"]
+                ),
+                .init(preferred: "RMSNorm", spokenForms: ["RMS Norm"]),
+            ]
+        )
+        let original = "我在用千维 Image Editor 做图像编辑。每个 token 都会经过 Tokenizer 模型使用 RMS Norm 和。模型使用 RMSNorm 和 AdaLN。"
+        let candidate = "我在用 Qwen-Image-Edit 做图像编辑。每个 token 都会经过 tokenizer。模型使用 RMSNorm 和 AdaLN。"
+
+        XCTAssertTrue(RefinementValidator.accepts(
+            candidate: candidate,
+            original: original,
+            skill: skill
+        ))
+    }
 }

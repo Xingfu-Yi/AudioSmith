@@ -1,7 +1,11 @@
 import Foundation
 
 enum RefinementValidator {
-    static func accepts(candidate: String, original: String) -> Bool {
+    static func accepts(
+        candidate: String,
+        original: String,
+        skill: DomainSkill = .general
+    ) -> Bool {
         let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         let original = original.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty, !original.isEmpty else { return false }
@@ -23,8 +27,13 @@ enum RefinementValidator {
             guard (0.65...1.35).contains(ratio) else { return false }
         }
 
-        let normalizedOriginal = normalize(original)
-        let normalizedCandidate = normalize(candidate)
+        // A pronunciation correction can look like a large character edit
+        // even though it is exactly what the selected Skill requested (for
+        // example, “千维 Image Editor” -> “Qwen-Image-Edit”). Canonicalize
+        // only for the distance calculation; the candidate itself still has
+        // to pass every length, protocol, number, URL and email safeguard.
+        let normalizedOriginal = normalize(original, skill: skill)
+        let normalizedCandidate = normalize(candidate, skill: skill)
         let distance = normalizedEditDistance(normalizedOriginal, normalizedCandidate)
         let maximumLength = max(normalizedOriginal.count, normalizedCandidate.count)
         let ratio = maximumLength > 0 ? Double(distance) / Double(maximumLength) : 0
@@ -39,11 +48,52 @@ enum RefinementValidator {
         return true
     }
 
-    private static func normalize(_ text: String) -> [Character] {
-        Array(text
+    private static func normalize(_ text: String, skill: DomainSkill) -> [Character] {
+        var canonicalized = text
+        let hints = skill.terms
+            .flatMap { term in term.spokenForms.map { ($0, term.preferred) } }
+            .filter { !$0.0.isEmpty }
+            .sorted { $0.0.count > $1.0.count }
+        for (spokenForm, canonical) in hints {
+            canonicalized = replaceKnownForm(
+                spokenForm,
+                in: canonicalized,
+                with: canonical
+            )
+        }
+
+        return Array(canonicalized
             .precomposedStringWithCanonicalMapping
             .lowercased()
             .filter { !$0.isWhitespace && !$0.isPunctuation })
+    }
+
+    private static func replaceKnownForm(
+        _ spokenForm: String,
+        in input: String,
+        with canonical: String
+    ) -> String {
+        if spokenForm.unicodeScalars.contains(where: { scalar in
+            (0x3400...0x4DBF).contains(scalar.value) ||
+                (0x4E00...0x9FFF).contains(scalar.value) ||
+                (0xF900...0xFAFF).contains(scalar.value)
+        }) {
+            return input.replacingOccurrences(
+                of: spokenForm,
+                with: canonical,
+                options: [.caseInsensitive]
+            )
+        }
+
+        let escaped = NSRegularExpression.escapedPattern(for: spokenForm)
+        let pattern = #"(?i)(?<![\p{L}\p{N}_])"# + escaped + #"(?![\p{L}\p{N}_])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return input }
+        let range = NSRange(input.startIndex..<input.endIndex, in: input)
+        return regex.stringByReplacingMatches(
+            in: input,
+            range: range,
+            withTemplate: NSRegularExpression.escapedTemplate(for: canonical)
+        )
     }
 
     private static func normalizedEditDistance(_ left: [Character], _ right: [Character]) -> Int {

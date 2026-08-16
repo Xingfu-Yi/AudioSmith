@@ -42,6 +42,7 @@ enum TextCleaner {
         text = replacing(#"\s+([）】”’])"#, in: text, with: "$1")
         text = replacing(#"([\p{Han}])\s+([\p{Han}])"#, in: text, with: "$1$2")
         text = collapseRepeatedSentences(text)
+        text = collapsePrefixRepeatedSentences(text)
 
         for (source, target) in replacements.sorted(by: { $0.key.count > $1.key.count }) {
             text = replacingAlias(source, in: text, with: target)
@@ -71,6 +72,51 @@ enum TextCleaner {
 
     private static func collapseRepeatedSentences(_ input: String) -> String {
         replacing(#"(.{4,120}?[。！？!?])(?:\s*\1)+"#, in: input, with: "$1")
+    }
+
+    /// Rolling ASR can emit an incomplete sentence immediately before a
+    /// longer hypothesis of that same sentence. Remove only adjacent cases
+    /// where the normalized earlier sentence is an exact prefix of the next
+    /// one; ordinary paraphrases and non-adjacent repetition remain intact.
+    private static func collapsePrefixRepeatedSentences(_ input: String) -> String {
+        var segments: [String] = []
+        var current = ""
+        for character in input {
+            current.append(character)
+            if "。！？!?".contains(character) {
+                segments.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { segments.append(current) }
+
+        var collapsed: [String] = []
+        for segment in segments {
+            if let previous = collapsed.last {
+                let previousKey = comparisonKey(previous)
+                let currentKey = comparisonKey(segment)
+                if previousKey.count >= 8,
+                   currentKey.count > previousKey.count,
+                   currentKey.hasPrefix(previousKey),
+                   hasDanglingConnector(previousKey) {
+                    collapsed.removeLast()
+                }
+            }
+            collapsed.append(segment)
+        }
+        return collapsed.joined()
+    }
+
+    private static func comparisonKey(_ input: String) -> String {
+        input.precomposedStringWithCanonicalMapping
+            .lowercased()
+            .filter { !$0.isWhitespace && !$0.isPunctuation }
+    }
+
+    private static func hasDanglingConnector(_ key: String) -> Bool {
+        ["以及", "and", "or", "和", "与", "及", "或", "跟"].contains {
+            key.hasSuffix($0)
+        }
     }
 
     private static func replacing(_ pattern: String, in input: String, with replacement: String) -> String {

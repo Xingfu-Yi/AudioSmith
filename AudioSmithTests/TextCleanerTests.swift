@@ -13,6 +13,20 @@ final class TextCleanerTests: XCTestCase {
         XCTAssertEqual(TextCleaner.clean("模型已经加载。模型已经加载。"), "模型已经加载。")
     }
 
+    func testCollapsesIncompleteSentenceBeforeItsLongerReplacement() {
+        XCTAssertEqual(
+            TextCleaner.clean("模型使用 RMS Norm 和。模型使用 RMSNorm 和 AdaLN。"),
+            "模型使用 RMSNorm 和 AdaLN。"
+        )
+    }
+
+    func testDoesNotCollapseDistinctAdjacentSentences() {
+        XCTAssertEqual(
+            TextCleaner.clean("我们使用这个模型。我们使用这个模型训练图像。"),
+            "我们使用这个模型。我们使用这个模型训练图像。"
+        )
+    }
+
     func testAppliesLongestReplacementFirst() {
         let result = TextCleaner.clean(
             "Use MLX Audio Swift and M L X.",

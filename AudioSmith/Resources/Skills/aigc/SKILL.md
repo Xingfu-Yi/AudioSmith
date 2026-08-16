@@ -18,11 +18,11 @@ description: Use canonical spellings, spoken forms, and common ASR confusions to
 
 | 规范写法 | 读法或常见误识别 |
 |---|---|
-| Qwen | 千问 |
+| Qwen | 千问；千维 |
 | Qwen3 | 千问三；Qwen three |
 | Qwen3-ASR | 千问三 A S R；Qwen three A S R |
 | Qwen-Image | 千问 Image |
-| Qwen-Image-Edit | 千问 Image Edit |
+| Qwen-Image-Edit | 千问 Image Edit；千维 Image Edit；千问 Image Editor；千维 Image Editor |
 | Qwen-VL | 千问 V L |
 | ModelScope | 魔搭；model scope |
 | Hugging Face | hugging face |

@@ -90,7 +90,11 @@ actor ProfessionalRefiner {
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         Memory.clearCache()
 
-        guard RefinementValidator.accepts(candidate: candidate, original: raw) else {
+        guard RefinementValidator.accepts(
+            candidate: candidate,
+            original: raw,
+            skill: request.skill
+        ) else {
             throw ProfessionalRefinerError.rejectedCandidate
         }
         return candidate
