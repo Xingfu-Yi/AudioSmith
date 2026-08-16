@@ -7,10 +7,11 @@ final class PushToTalkKeyMonitor: @unchecked Sendable {
         let pressed: @MainActor @Sendable () -> Void
         let released: @MainActor @Sendable () -> Void
         let cancelled: @MainActor @Sendable () -> Void
+        let escapePressed: @MainActor @Sendable () -> Void
     }
 
     private var eventTap: CFMachPort?
-    private let logger = Logger(subsystem: "io.dictateagent.DictateAgent", category: "hotkey")
+    private let logger = Logger(subsystem: "com.xingfuyi.AudioSmith", category: "hotkey")
     private var runLoopSource: CFRunLoopSource?
     private let lock = NSLock()
     private var isActivationKeyDown = false
@@ -88,17 +89,21 @@ final class PushToTalkKeyMonitor: @unchecked Sendable {
 
         case .keyDown:
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            var shouldCancel = false
+            var action: Action?
             lock.withLock {
-                guard isActivationKeyDown else { return }
                 let isEscape = keyCode == 53
+                if isEscape, !isActivationKeyDown {
+                    action = .escape
+                    return
+                }
+                guard isActivationKeyDown else { return }
                 let isFnCombination = hotkey == .function && Self.functionKeyCodes.contains(keyCode)
                 let isModifierShortcut = hotkey != .function
                 guard isEscape || isFnCombination || isModifierShortcut else { return }
                 didCancel = true
-                shouldCancel = true
+                action = .cancel
             }
-            if shouldCancel { dispatch(.cancel) }
+            dispatch(action)
 
         default:
             break
@@ -111,24 +116,25 @@ final class PushToTalkKeyMonitor: @unchecked Sendable {
         case .press: logger.notice("Push-to-talk key down")
         case .release: logger.notice("Push-to-talk key up")
         case .cancel: logger.notice("Push-to-talk request cancelled")
+        case .escape: logger.notice("Escape pressed outside the activation chord")
         }
         Task { @MainActor [handlers] in
             switch action {
             case .press: handlers.pressed()
             case .release: handlers.released()
             case .cancel: handlers.cancelled()
+            case .escape: handlers.escapePressed()
             }
         }
     }
 
-    private enum Action: Sendable { case press, release, cancel }
+    private enum Action: Sendable { case press, release, cancel, escape }
 }
 
 enum PushToTalkMonitorError: LocalizedError {
     case cannotCreateEventTap
 
     var errorDescription: String? {
-        "无法监听听写快捷键，请在系统设置中允许“输入监控”，然后重新启动应用。"
+        "无法监听听写快捷键，请在系统设置中允许“辅助功能”，然后返回 Audio Smith 重试。"
     }
 }
-

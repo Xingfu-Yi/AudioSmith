@@ -75,6 +75,11 @@ private struct OverlayView: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.72))
             } else if state.phase == .finalizing {
+                if state.finalizationKind == .professional {
+                    Text("专业精修")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.58))
+                }
                 FinalizingSpinner()
             }
 
@@ -85,24 +90,18 @@ private struct OverlayView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            } else if state.phase == .finalizing,
+                      state.finalizationKind == .professional {
+                Text("ESC 跳过")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.48))
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .background {
             Capsule()
-                .fill(Color(red: 0.055, green: 0.061, blue: 0.079))
-        }
-        .overlay {
-            Capsule()
-                .stroke(
-                    LinearGradient(
-                        colors: [.white.opacity(0.2), .white.opacity(0.07)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 0.8
-                )
+                .fill(Color.black.opacity(0.94))
         }
         .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
         .padding(6)
@@ -115,36 +114,33 @@ private struct OverlayView: View {
 }
 
 private struct FinalizingSpinner: View {
-    @State private var isRotating = false
-
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(.white.opacity(0.12), lineWidth: 2.2)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            let turn = timeline.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: 0.82) / 0.82
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.12), lineWidth: 2.2)
 
-            Circle()
-                .trim(from: 0.08, to: 0.76)
-                .stroke(
-                    AngularGradient(
-                        colors: [
-                            .white.opacity(0.98),
-                            Color(red: 0.40, green: 0.82, blue: 1),
-                            Color(red: 0.58, green: 0.50, blue: 1),
-                            .white.opacity(0.18),
-                        ],
-                        center: .center
-                    ),
-                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
-                )
-                .rotationEffect(.degrees(isRotating ? 360 : 0))
+                Circle()
+                    .trim(from: 0.08, to: 0.76)
+                    .stroke(
+                        AngularGradient(
+                            colors: [
+                                .white.opacity(0.98),
+                                Color(red: 0.40, green: 0.82, blue: 1),
+                                Color(red: 0.58, green: 0.50, blue: 1),
+                                .white.opacity(0.18),
+                            ],
+                            center: .center
+                        ),
+                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(turn * 360))
+            }
         }
         .frame(width: 17, height: 17)
         .accessibilityLabel("正在处理")
-        .onAppear {
-            withAnimation(.linear(duration: 0.82).repeatForever(autoreverses: false)) {
-                isRotating = true
-            }
-        }
     }
 }
 

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var state: AppState
     @ObservedObject var skills: SkillManager
     @ObservedObject var hotkeys: HotkeySettings
+    @ObservedObject var preferences: DictationPreferences
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -38,7 +39,7 @@ struct SettingsView: View {
             GroupBox("系统权限") {
                 VStack(alignment: .leading, spacing: 10) {
                     permissionRow("麦克风", granted: state.permissions.microphone)
-                    permissionRow("输入监控", granted: state.permissions.inputMonitoring)
+                    permissionRow("快捷键监听", granted: state.permissions.shortcutMonitoring)
                     permissionRow("辅助功能（自动粘贴）", granted: state.permissions.accessibility)
                     HStack {
                         Button("请求权限") {
@@ -55,9 +56,31 @@ struct SettingsView: View {
 
             GroupBox("模型与性能") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Qwen3-ASR-1.7B · MLX 8-bit · 纯本地")
+                    Toggle("专业精修（Qwen3-1.7B + Skills）", isOn: professionalBinding)
+                        .toggleStyle(.switch)
+                    Text(preferences.refinementMode == .professional
+                         ? "0.6B ASR 后对完整文本精修一次；准确性更高。"
+                         : "极速听写仅使用 0.6B ASR；延迟和内存更低。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("下载源", selection: sourceBinding) {
+                        ForEach(ModelSourcePreference.allCases) { source in
+                            Text(source.displayName).tag(source)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(preferences.refinementMode == .professional
+                         ? "Qwen3-ASR-0.6B 8-bit + Qwen3-1.7B MLX 4-bit · 纯本地"
+                         : "Qwen3-ASR-0.6B 8-bit · 纯本地")
                     if state.phase == .downloading {
                         ProgressView(value: state.downloadProgress)
+                        if let model = state.downloadingModelName {
+                            Text(model + sourceSuffix)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         Text(ByteCountFormatter.string(fromByteCount: state.downloadedBytes, countStyle: .file)
                              + " / "
                              + ByteCountFormatter.string(fromByteCount: state.totalDownloadBytes, countStyle: .file))
@@ -100,19 +123,22 @@ struct SettingsView: View {
                                         }
                                     }
                                     .toggleStyle(.checkbox)
+                                    .disabled(preferences.refinementMode == .fast)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxHeight: 150)
                     }
-                    Text(skills.selectedSkillIDs.isEmpty
-                         ? "未选择 Skill：使用通用听写。"
-                         : "已选择 \(skills.selectedSkillIDs.count) 个 Skill；上下文会在每次听写开始前合并为不可变快照。")
+                    Text(preferences.refinementMode == .fast
+                         ? "极速听写不加载 Skills；勾选会保留到下次开启专业精修。"
+                         : (skills.selectedSkillIDs.isEmpty
+                            ? "未选择 Skill：使用通用专业精修。"
+                            : "已选择 \(skills.selectedSkillIDs.count) 个 Skill；上下文和词汇会进入下一次整段精修快照。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("打开 Skills 文件夹") { skills.revealUserSkillsDirectory() }
-                    Text("组合 prompt 最多 8,000 字符和 300 个去重术语；修改将在下一次听写自动生效。")
+                    Text("Skills 不会进入 ASR；专业模式只在松开快捷键后，将最多 300 个去重术语和限额上下文提交给一次整段精修。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -126,7 +152,7 @@ struct SettingsView: View {
 
             HStack {
                 Spacer()
-                Button("重新下载模型") { AppRuntime.shared.reinstallModel() }
+                Button("重新下载模型") { AppRuntime.shared.reinstallModels() }
                 Button("退出") { NSApp.terminate(nil) }
             }
         }
@@ -156,5 +182,24 @@ struct SettingsView: View {
             get: { hotkeys.selected },
             set: { AppRuntime.shared.selectHotkey($0) }
         )
+    }
+
+    private var professionalBinding: Binding<Bool> {
+        Binding(
+            get: { preferences.refinementMode == .professional },
+            set: { AppRuntime.shared.selectRefinementMode($0 ? .professional : .fast) }
+        )
+    }
+
+    private var sourceBinding: Binding<ModelSourcePreference> {
+        Binding(
+            get: { preferences.modelSource },
+            set: { AppRuntime.shared.selectModelSource($0) }
+        )
+    }
+
+    private var sourceSuffix: String {
+        guard let source = state.activeDownloadSource else { return "" }
+        return " · " + source.displayName
     }
 }

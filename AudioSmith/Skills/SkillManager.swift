@@ -129,6 +129,6 @@ final class SkillManager: ObservableObject {
 
     static var userSkillsDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("DictateAgent/Skills", isDirectory: true)
+        return base.appendingPathComponent("AudioSmith/Skills", isDirectory: true)
     }
 }

@@ -6,18 +6,18 @@ Audio Smith uses standard, single-file Skills. Each Skill is a directory contain
 
 | Kind | Location | Purpose |
 |---|---|---|
-| Bundled fallback | `DictateAgent/Resources/Skills/aigc/SKILL.md` | Reviewed AIGC starter shipped inside the app bundle |
+| Bundled fallback | `AudioSmith/Resources/Skills/aigc/SKILL.md` | Reviewed AIGC starter shipped inside the app bundle |
 | Repository examples | `Examples/Skills/<name>/SKILL.md` | Copyable templates that are not shipped in the app |
-| User-installed | `~/Library/Application Support/DictateAgent/Skills/<name>/SKILL.md` | Local Skills discovered when the app reloads |
+| User-installed | `~/Library/Application Support/AudioSmith/Skills/<name>/SKILL.md` | Local Skills discovered when the app reloads |
 
-The application ships one starter: `aigc`. On first launch it copies that file to `~/Library/Application Support/DictateAgent/Skills/aigc/SKILL.md`, selects it by default, and lets the user inspect or edit it. A valid user Skill with the same identifier overrides the bundled fallback and is never overwritten by later rescans.
+The application ships one starter: `aigc`. On first launch it copies that file to `~/Library/Application Support/AudioSmith/Skills/aigc/SKILL.md`, selects it by default, and lets the user inspect or edit it. A valid user Skill with the same identifier overrides the bundled fallback and is never overwritten by later rescans.
 
 In Audio Smith, open **System Settings → 术语 Skill → 打开 Skills 文件夹** to reveal the user directory. Copy the entire Skill directory into it. Audio Smith scans the directory before every dictation, so edits take effect on the next request without a reload button or application restart.
 
 For example:
 
 ```text
-~/Library/Application Support/DictateAgent/Skills/
+~/Library/Application Support/AudioSmith/Skills/
 └── aigc/
     └── SKILL.md
 ```
@@ -53,9 +53,9 @@ The speaker is discussing ...
 - `name` uses lowercase letters, digits and hyphens and is at most 64 characters.
 - `description` explains when the Skill is useful.
 - The first level-one heading is the display name shown in Audio Smith.
-- Every Markdown body section except `Vocabulary` becomes bounded ASR context. This includes `Dictation context`, `Transcription guidance`, examples, and project-specific background.
+- Every Markdown body section except `Vocabulary` is parsed and retained as bounded Professional-mode dictation context.
 - Under `## Vocabulary`, the first backtick value is the preferred spelling and later values are aliases.
-- Body text can bias model decoding but cannot execute code, tools, scripts, or linked resources.
+- Body text is inert data and cannot execute code, tools, scripts, or linked resources.
 
 Chinese aliases `## 听写上下文` / `## 上下文` and `## 词汇` / `## 术语` are also accepted.
 
@@ -64,19 +64,19 @@ Chinese aliases `## 听写上下文` / `## 上下文` and `## 词汇` / `## 术�
 1. Pressing the selected push-to-talk key starts one dictation request (`Fn` by default).
 2. Audio Smith rescans the built-in and fixed user Skills directories.
 3. It resolves every checked Skill and creates one deterministic, immutable combined snapshot.
-4. That snapshot supplies context to every rolling refinement window and the final tail decode, then supplies deterministic vocabulary replacements during cleanup.
+4. ASR never receives the Skill. Professional mode supplies the bounded context and vocabulary to its one whole-transcript refinement call, then applies safe aliases during final cleanup. Fast mode ignores the snapshot.
 5. Changes saved during a recording are picked up on the next dictation request.
 
-System Settings shows every discovered Skill as a checkbox. The bundled product experience starts with one editable AIGC Skill; advanced users may still add and combine custom Skills. Unrelated vocabularies can compete and reduce recognition accuracy, so keeping one focused Skill is preferred. The app sorts selections by identifier, deduplicates preferred terms, and caps the combined prompt at 8,000 characters and 300 terms.
+System Settings shows every discovered Skill as a checkbox. The bundled product experience starts with one editable AIGC Skill; advanced users may still add and combine custom Skills. The app sorts selections by identifier, deduplicates preferred terms, and activates at most 300 terms in one Professional request. The checked state remains visible but inactive in Fast mode.
 
 ## Safety and limits
 
-- Audio Smith sends bounded Markdown body text to ASR as contextual guidance, but never executes scripts, tools, or linked resources from a Skill.
+- Audio Smith never sends Skills to ASR and never executes scripts, tools, or linked resources from a Skill.
 - `SKILL.md` must be UTF-8 and no larger than 256KB.
 - A Skill may contain at most 200 parsed vocabulary entries.
 - Each selected Skill contributes at most 4,000 context characters; the final combined model prompt is capped at 8,000 characters.
 - The combined request contains at most 300 unique preferred terms.
-- Context and preferred terms bias model decoding; aliases are also deterministic replacements after transcription, so avoid short or ambiguous everyday words.
+- Vocabulary aliases are available to the Professional refiner and deterministic final cleanup, so avoid short or ambiguous everyday words.
 - Do not include private transcripts, patient data, credentials or copyrighted terminology collections without permission.
 
-The repository example is available at `Examples/Skills/medical-dictation/SKILL.md`. The editable starter source is maintained at `DictateAgent/Resources/Skills/aigc/SKILL.md`.
+The repository example is available at `Examples/Skills/medical-dictation/SKILL.md`. The editable starter source is maintained at `AudioSmith/Resources/Skills/aigc/SKILL.md`.

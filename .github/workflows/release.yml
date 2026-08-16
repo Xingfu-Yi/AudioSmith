@@ -95,7 +95,7 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist "$export_options"
-          codesign --verify --deep --strict --verbose=2 "$EXPORT_PATH/DictateAgent.app"
+          codesign --verify --deep --strict --verbose=2 "$EXPORT_PATH/Audio Smith.app"
 
       - name: Create, notarize and staple DMG
         env:
@@ -105,7 +105,7 @@ jobs:
         run: |
           staging="$RUNNER_TEMP/dmg"
           mkdir -p "$staging"
-          ditto "$EXPORT_PATH/DictateAgent.app" "$staging/DictateAgent.app"
+          ditto "$EXPORT_PATH/Audio Smith.app" "$staging/Audio Smith.app"
           ln -s /Applications "$staging/Applications"
           hdiutil create -fs HFS+ -volname 'Audio Smith' -srcfolder "$staging" -format UDZO "$DMG_PATH"
           xcrun notarytool submit "$DMG_PATH" \

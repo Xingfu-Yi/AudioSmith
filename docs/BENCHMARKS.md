@@ -1,76 +1,66 @@
 # Benchmarks
 
-This document keeps observed measurements separate from product configuration and release targets. A result is not promoted to a release claim until its hardware, model revision, workload, and measurement method are recorded here.
+This document separates observed results, current product configuration, and release targets. The new dual-model design has no completed public performance or accuracy result yet.
 
-## Test subject
+## Current test subject
 
-- Application: Audio Smith Developer Preview
-- Model: `mlx-community/Qwen3-ASR-1.7B-8bit`
-- Model revision: `a8379a2e2f9e313c9292cdf1af4055ab56d50d55`
-- Quantization: MLX 8-bit affine, group size 64
-- Decode policy: greedy
+- ASR: `mlx-community/Qwen3-ASR-0.6B-8bit`, revision `89e96d92ba34aca20b3e29fb10cc284097d1219f`
+- Professional refiner: `Qwen/Qwen3-1.7B-MLX-4bit`, revision `21457c6f51ed54a7c16e988c0844db973815c137`
+- ASR decode: greedy, eight-second windows, nominal two-second overlap
+- Refiner: thinking disabled, one whole-transcript call after release
 - Development hardware: M1 Pro with 32GB unified memory
 
-Audio Smith does not use TorchAO FP8. The repository contains a reproducible conversion script but does not contain model weights.
+Audio Smith does not use TorchAO FP8. Model weights are not stored in this repository.
 
-## Observed results
+## Legacy observations
 
-| Date/status | Runtime and workload | Elapsed or latency | Peak physical footprint | What this proves |
-|---|---|---:|---:|---|
-| Measured on development machine | Python/MLX, one 30-second audio input | 1.88s; RTF 0.063 | 4.43GB | The pinned 8-bit model can run substantially faster than real time in this offline harness. |
-| Measured on development machine | Swift Debug app, model load followed by silent prewarm | Not a streaming latency test | 3.40GB peak; 2.43GB settled | The Swift app can load and prewarm the model below the 5GB gate on this machine. |
+These rows measured the previous 1.7B 8-bit ASR-only path. They are retained for provenance and must not be presented as results for the current dual-model configuration.
 
-The two rows use different processes and workloads. Their memory values must not be combined or treated as a complete live-dictation result.
+| Status | Runtime and workload | Elapsed | Peak process footprint |
+|---|---|---:|---:|
+| Legacy measured baseline | Python/MLX, one 30-second input, 1.7B ASR 8-bit | 1.88s; RTF 0.063 | 4.43GB |
+| Legacy measured baseline | Swift Debug load + silent prewarm, 1.7B ASR 8-bit | Not a request-latency test | 3.40GB peak; 2.43GB settled |
 
-## Product configuration, not measurements
+## Current configuration, not measurements
 
-- Capture UI: waveform and elapsed time only; no provisional transcript
-- Base encoder window: Qwen's native approximately eight-second blocks
-- Refinement window: 16 seconds with a nominal derived 25% overlap (4-second overlap, 12-second target stride); a punctuation-guided acoustic pause may adjust the actual boundary while retaining at least two seconds of overlap
-- Short-request policy: requests up to 16 seconds receive one final pass; final model inputs shorter than 8 seconds receive trailing-silence padding
-- During capture: serial background checkpoints over the rolling window; the UI remains waveform-only
-- Release-time transcription: only the final overlapping tail window, unless a low-confidence seam requires the safe full-pass fallback
-- Combined Skill snapshot: at most 8,000 prompt characters and 300 unique preferred terms
-- Session limit: 5 minutes
-- Runtime diagnostic warning: 4.7GB physical footprint
-- Binary-release blocker: more than 5.0GB physical footprint
-
-These values describe the current configuration, not measured end-to-end p95 latency claims. The design intentionally trades live captions for a calmer recording UI while moving most long-request decoding into bounded background checkpoints. Release-to-paste latency must be measured again before a binary release.
+- Fast mode: 0.6B ASR and generic deterministic cleanup; refiner memory is unloaded.
+- Professional mode: 0.6B ASR followed by one 1.7B whole-transcript refinement with selected Skills.
+- Short audio: true length at 0.5–8 seconds; shorter voiced input pads only to 0.5 seconds; one empty-result retry adds 250ms silence.
+- Long audio: eight-second ASR windows, two-second nominal overlap, six-second nominal stride, 120ms+ pause-aware boundaries.
+- Local seam recovery: at most 12 seconds; no whole-recording re-decode.
+- UI: waveform while recording; time-driven progress ring after release; no live transcript.
+- Session limit: five minutes.
+- Warning: 4.7GB physical footprint; release blocker: over 5.0GB.
 
 ## Binary-release targets
 
-The following remain gates, not achieved results:
+These are gates, not achieved claims:
 
-| Gate | Target | Required coverage |
-|---|---:|---|
-| Peak physical footprint | ≤5.0GB | M1 Pro 32GB and at least one 24GB Apple Silicon Mac, including a five-minute live session |
-| Waveform visible after shortcut press | p95 ≤150ms | Real microphone input and overlay rendering |
-| Shortcut release to paste | p95 ≤2.0s for 30s speech | General Skill and supported target applications |
-| Real-time factor | ≤0.25 | Recorded Chinese, English, and mixed-language sets |
-| 8-bit mixed token error rate delta versus BF16 | ≤0.5 percentage points | Same corpus and greedy-decode configuration |
+| Gate | Fast | Professional | Required coverage |
+|---|---:|---:|---|
+| Release-to-paste, 1–8s request | p95 ≤1s | p95 ≤2s | Real microphone and supported target apps |
+| Release-to-paste, 30s request | Record | p95 ≤5s | Chinese, English, and mixed speech |
+| Five-minute refinement | N/A | complete or safe fallback ≤45s | One continuous session |
+| Peak process footprint | Refiner absent | ≤5.0GB | M1 Pro 32GB and at least one 24GB Mac |
+| Waveform after key press | p95 ≤150ms | p95 ≤150ms | Real overlay rendering |
+| ASR real-time factor | ≤0.25 | ≤0.25 before refinement | Published corpus |
 
-## Accuracy protocol
+## Accuracy gates
 
-The public accuracy report must include three separately summarized sets: Chinese, English, and Chinese/English code switching. It must publish:
+- Professional mixed-language token error rate may be at most 0.3 percentage points worse than the previous 1.7B-ASR baseline.
+- AIGC terminology accuracy must improve by at least five percentage points.
+- Semantic expansion, summarization, translation, and protected number mutation must remain zero in the release corpus.
 
-- hardware and macOS version;
-- microphone or source-audio description;
-- corpus provenance and licensing description;
-- BF16 and 8-bit model revisions;
-- quantization mode, bit width, and group size;
-- identical decoding parameters;
-- aggregate error metrics and raw per-utterance results that contain no private speech.
+The report must publish hardware, macOS, source-audio description, corpus provenance, model revisions, all generation parameters, per-mode metrics, and privacy-safe aggregate results.
 
-No “high accuracy” claim should be made before these results are available. A terminology Skill comparison should be reported separately from the base-model comparison because deterministic alias replacement changes the final text.
+## Measurement protocol
 
-## Streaming and memory protocol
+1. Install and verify both models, disable network access, and wait for prewarm.
+2. Record settled baseline footprint separately for Fast and Professional modes.
+3. Run 1–8s, 30s, two-minute, and five-minute requests in Chinese, English, and code-switched sets.
+4. Record every ASR pass, seam repair, the single refiner call count, timeout/fallback reason, p50/p95/max latency, and process footprint.
+5. Confirm Fast mode retains no 1.7B model memory and Professional mode never calls the text model during recording.
+6. Exercise `Esc` during refinement and verify ASR fallback paste begins within 500ms once the tail text exists.
+7. Repeat after sleep/wake, microphone changes, and thermal load.
 
-1. Launch after a verified model installation and wait for silent prewarm to finish.
-2. Record baseline physical footprint after memory settles.
-3. Run at least 30 mixed-duration requests, including one continuous five-minute request.
-4. Sample physical footprint throughout capture, rolling checkpoint decoding, final-tail decoding, fallback decoding, and cleanup.
-5. Verify the waveform stays responsive and the final text covers the complete utterance without duplicate or lost text across nominal and pause-adjusted overlap seams.
-6. Report p50, p95, maximum, thermal state, and whether the Mac was on battery power.
-7. Repeat after sleep/wake and after changing the active microphone.
-
-See [Testing and release gates](TESTING.md) for the complete functional and privacy matrix.
+See [Testing and release gates](TESTING.md) for the functional matrix.

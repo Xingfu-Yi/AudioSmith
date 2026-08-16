@@ -2,10 +2,9 @@ import AppKit
 import SwiftUI
 
 @main
-struct DictateAgentApp: App {
+struct AudioSmithApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var state = AppState.shared
-    @StateObject private var skills = SkillManager.shared
     @StateObject private var hotkeys = HotkeySettings.shared
 
     var body: some Scene {
@@ -13,23 +12,19 @@ struct DictateAgentApp: App {
             MenuBarView(hotkeys: hotkeys)
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            SettingsView(state: state, skills: skills, hotkeys: hotkeys)
-        }
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var permissionWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         if ProcessInfo.processInfo.arguments.contains("--diagnose-permissions") {
             let permissions = Permissions.snapshot()
             let line = "microphone=\(permissions.microphone) "
-                + "inputMonitoring=\(permissions.inputMonitoring) "
+                + "shortcutMonitoring=\(permissions.shortcutMonitoring) "
                 + "accessibility=\(permissions.accessibility)\n"
             FileHandle.standardOutput.write(Data(line.utf8))
             NSApp.terminate(nil)
@@ -37,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         if !Permissions.snapshot().allGranted {
-            showPermissionSetup()
+            showSettings()
         }
         AppRuntime.shared.start()
     }
@@ -47,23 +42,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppRuntime.shared.shutdown()
     }
 
-    private func showPermissionSetup() {
-        let hostingController = NSHostingController(
-            rootView: SettingsView(
-                state: AppState.shared,
-                skills: SkillManager.shared,
-                hotkeys: HotkeySettings.shared
+    func showSettings() {
+        if settingsWindow == nil {
+            let hostingController = NSHostingController(
+                rootView: SettingsView(
+                    state: AppState.shared,
+                    skills: SkillManager.shared,
+                    hotkeys: HotkeySettings.shared,
+                    preferences: DictationPreferences.shared
+                )
             )
-        )
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Audio Smith Settings"
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 608, height: 720))
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        permissionWindow = window
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "Audio Smith Settings"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.setContentSize(NSSize(width: 608, height: 720))
+            window.isReleasedWhenClosed = false
+            window.collectionBehavior.insert(.moveToActiveSpace)
+            window.center()
+            settingsWindow = window
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
+
+        // MenuBarExtra closes at the end of the current event. Reasserting the
+        // ordering on the next run-loop turn prevents that close from returning
+        // focus to the previously active browser window.
+        DispatchQueue.main.async { [weak self] in
+            NSApp.activate(ignoringOtherApps: true)
+            self?.settingsWindow?.makeKeyAndOrderFront(nil)
+        }
     }
 }
 
@@ -86,7 +95,9 @@ private struct MenuBarView: View {
                 }
             }
         }
-        SettingsLink {
+        Button {
+            (NSApp.delegate as? AppDelegate)?.showSettings()
+        } label: {
             Label("系统设置", systemImage: "gearshape")
         }
         Button("退出") { NSApp.terminate(nil) }

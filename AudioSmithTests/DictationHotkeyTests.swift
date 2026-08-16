@@ -1,5 +1,5 @@
 import XCTest
-@testable import DictateAgent
+@testable import AudioSmith
 
 final class DictationHotkeyTests: XCTestCase {
     func testEveryShortcutUsesAUniquePhysicalKeyCode() {

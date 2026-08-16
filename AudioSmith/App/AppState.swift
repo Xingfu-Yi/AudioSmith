@@ -33,10 +33,10 @@ enum AppPhase: Equatable, Sendable {
 
 struct PermissionSnapshot: Equatable, Sendable {
     var microphone = false
-    var inputMonitoring = false
+    var shortcutMonitoring = false
     var accessibility = false
 
-    var allGranted: Bool { microphone && inputMonitoring && accessibility }
+    var allGranted: Bool { microphone && shortcutMonitoring && accessibility }
 }
 
 struct TranscriptionPerformance: Equatable, Sendable {
@@ -44,6 +44,11 @@ struct TranscriptionPerformance: Equatable, Sendable {
     var tokensPerSecond = 0.0
     var peakMemoryGB = 0.0
     var audioSeconds = 0.0
+}
+
+enum FinalizationKind: Equatable, Sendable {
+    case fast
+    case professional
 }
 
 @MainActor
@@ -57,9 +62,12 @@ final class AppState: ObservableObject {
     @Published var downloadProgress = 0.0
     @Published var downloadedBytes: Int64 = 0
     @Published var totalDownloadBytes: Int64 = 0
+    @Published var downloadingModelName: String?
+    @Published var activeDownloadSource: ModelDownloadSource?
     @Published var performance = TranscriptionPerformance()
     @Published var memoryWarning: String?
     @Published var lastMessage: String?
+    @Published var finalizationKind: FinalizationKind = .fast
 
     private init() {}
 

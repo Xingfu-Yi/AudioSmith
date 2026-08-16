@@ -6,15 +6,20 @@ import OSLog
 
 enum Permissions {
     private static let logger = Logger(
-        subsystem: "io.dictateagent.DictateAgent",
+        subsystem: "com.xingfuyi.AudioSmith",
         category: "permissions"
     )
 
     static func snapshot() -> PermissionSnapshot {
-        PermissionSnapshot(
+        let accessibility = AXIsProcessTrusted()
+        return PermissionSnapshot(
             microphone: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
-            inputMonitoring: CGPreflightListenEventAccess(),
-            accessibility: AXIsProcessTrusted()
+            // Accessibility grants both event posting and event listening. Prefer
+            // that permission because Audio Smith already needs it for automatic
+            // paste, while the separate ListenEvent entry is unreliable at
+            // registering newly renamed development builds in System Settings.
+            shortcutMonitoring: accessibility || CGPreflightListenEventAccess(),
+            accessibility: accessibility
         )
     }
 
@@ -33,10 +38,6 @@ enum Permissions {
             logger.notice("Microphone authorization request completed: granted=\(granted, privacy: .public)")
         }
 
-        if !CGPreflightListenEventAccess() {
-            _ = CGRequestListenEventAccess()
-        }
-
         if !AXIsProcessTrusted() {
             // String value of kAXTrustedCheckOptionPrompt. Using the literal avoids
             // Swift 6 treating the imported C global as mutable shared state.
@@ -51,13 +52,39 @@ enum Permissions {
             try? await Task.sleep(for: .milliseconds(250))
             latest = snapshot()
         }
-        logger.notice("Permission request finished: microphone=\(latest.microphone, privacy: .public) inputMonitoring=\(latest.inputMonitoring, privacy: .public) accessibility=\(latest.accessibility, privacy: .public)")
+        logger.notice("Permission request finished: microphone=\(latest.microphone, privacy: .public) shortcutMonitoring=\(latest.shortcutMonitoring, privacy: .public) accessibility=\(latest.accessibility, privacy: .public)")
         return latest
     }
 
     @MainActor
     static func openPrivacySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") else { return }
+        let current = snapshot()
+        let anchor: String
+        if !current.microphone {
+            anchor = "Privacy_Microphone"
+        } else if !current.accessibility {
+            anchor = "Privacy_Accessibility"
+        } else {
+            anchor = "Privacy"
+        }
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
+        ) else { return }
         NSWorkspace.shared.open(url)
+
+        // URL routing can open the correct pane without activating its window
+        // when called by an LSUIElement menu-bar app. Explicitly activate System
+        // Settings after LaunchServices has had a chance to launch or reuse it.
+        Task { @MainActor in
+            for _ in 0..<10 {
+                if let settings = NSRunningApplication.runningApplications(
+                    withBundleIdentifier: "com.apple.systempreferences"
+                ).first {
+                    settings.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
     }
 }

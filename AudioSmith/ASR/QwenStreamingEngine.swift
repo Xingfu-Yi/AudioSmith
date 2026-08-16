@@ -25,7 +25,7 @@ struct RollingInferenceConfiguration: Equatable, Sendable {
     static let overlapFraction = 0.25
     static let standard = RollingInferenceConfiguration(
         baseEncoderWindowSeconds: 8,
-        refinementWindowSeconds: 16
+        refinementWindowSeconds: 8
     )
 
     let baseEncoderWindowSeconds: Double
@@ -403,17 +403,25 @@ private extension Character {
 }
 
 /// Owns Qwen's waveform-only rolling inference path. The audio tower still uses
-/// its native ~8-second blocks internally. The app decodes a 16-second window
-/// and advances near 75%, preferring a nearby clause pause while retaining
-/// enough overlap for deterministic stitching.
+/// its native ~8-second blocks internally. The app advances by a nominal six
+/// seconds (two-second overlap), preferring a nearby clause pause while
+/// retaining enough overlap for deterministic stitching.
 @MainActor
 final class QwenStreamingEngine {
     private var model: Qwen3ASRModel?
     private nonisolated let feeder = RollingSessionFeeder()
     private let configuration = RollingInferenceConfiguration.standard
 
+    var isLoaded: Bool { model != nil }
+
     func load(from directory: URL) async throws {
         model = try await Qwen3ASRModel.fromModelDirectory(directory)
+    }
+
+    func unload() {
+        feeder.cancel()
+        model = nil
+        Memory.clearCache()
     }
 
     func prewarm() async {
@@ -434,11 +442,15 @@ final class QwenStreamingEngine {
         }.value
     }
 
-    func begin(skill: DomainSkill) {
+    /// Skills remain request-scoped for deterministic cleanup, but their full
+    /// Markdown body is intentionally not injected into Qwen. A large text
+    /// prompt can dominate one- or two-second utterances, adding seconds of
+    /// prefill latency and occasionally suppressing an otherwise valid result.
+    func begin() {
         guard let model else { return }
         feeder.begin(RollingInferenceSession(
             model: model,
-            context: skill.promptContext,
+            context: "",
             configuration: configuration
         ))
     }
@@ -455,8 +467,6 @@ final class QwenStreamingEngine {
                 .init(startSample: $0.startSample, endSample: $0.endSample, text: $0.text)
             }
         )
-        guard assembly.matchedEverySeam else { return nil }
-
         return LongContextTranscription(
             text: assembly.text,
             audioSeconds: result.audioSeconds,
@@ -473,23 +483,26 @@ final class QwenStreamingEngine {
         )
     }
 
-    /// Safe fallback for a low-confidence overlap seam. It restores the former
-    /// whole-utterance behavior so a stitching failure never silently duplicates
-    /// or drops words in the pasted transcript.
-    func transcribe(samples: [Float], skill: DomainSkill) async -> LongContextTranscription? {
+    /// One-shot retry path. It is deliberately capped at twelve seconds so a
+    /// bad local seam or empty tail can never cause the entire long recording to
+    /// be decoded a second time.
+    func transcribe(samples: [Float]) async -> LongContextTranscription? {
         guard let model, !samples.isEmpty else { return nil }
+        let maximumSamples = 12 * 16_000
+        let boundedSamples = samples.count > maximumSamples
+            ? Array(samples.suffix(maximumSamples))
+            : samples
         let modelBox = UnsafeSendableBox(model)
-        let audioSeconds = Double(samples.count) / 16_000.0
-        let maxTokens = min(8_192, max(128, Int(ceil(audioSeconds * 16)) + 64))
-        let context = skill.promptContext
+        let audioSeconds = Double(boundedSamples.count) / 16_000.0
+        let maxTokens = ASRDecodeBudget.maxTokens(sampleCount: boundedSamples.count)
         let baseWindowSeconds = configuration.baseEncoderWindowSeconds
 
         return await Task.detached(priority: .userInitiated) {
             let output = modelBox.value.generate(
-                audio: MLXArray(samples),
+                audio: MLXArray(boundedSamples),
                 maxTokens: maxTokens,
                 temperature: 0,
-                context: context,
+                context: "",
                 language: nil,
                 chunkDuration: 360,
                 minChunkDuration: 0.5,
@@ -552,6 +565,11 @@ private final class RollingInferenceSession: @unchecked Sendable {
     private var nextWindowStartSample = 0
     private var nextCheckpointEndSample: Int
     private var decodedWindows: [DecodedRollingWindow] = []
+    private var totalDecodeSeconds = 0.0
+    private var totalGeneratedTokens = 0
+    private var measuredPeakMemoryGB = 0.0
+    private var finalDecodeSeconds = 0.0
+    private var checkpointCount = 0
 
     init(
         model: Qwen3ASRModel,
@@ -590,7 +608,8 @@ private final class RollingInferenceSession: @unchecked Sendable {
                 endSample: nextCheckpointEndSample,
                 isFinal: false
             )
-            decodedWindows.append(decodedWindow)
+            checkpointCount += 1
+            appendWithLocalSeamRepair(decodedWindow)
 
             let boundary = RollingWindowBoundarySelector.select(
                 samples: audio,
@@ -600,7 +619,9 @@ private final class RollingInferenceSession: @unchecked Sendable {
             )
             nextWindowStartSample = start + boundary.offsetSamples
             nextCheckpointEndSample = nextWindowStartSample + refinementWindowSamples
-            discardSamples(before: nextWindowStartSample)
+            // Retain four seconds behind the next start so a failed seam can
+            // be repaired with at most a twelve-second local union window.
+            discardSamples(before: max(0, nextWindowStartSample - 4 * sampleRate))
         }
     }
 
@@ -627,7 +648,7 @@ private final class RollingInferenceSession: @unchecked Sendable {
                 audio,
                 minimumSampleCount: minimumSampleCount
             )
-            decodedWindows.append(decode(
+            appendWithLocalSeamRepair(decode(
                 inferenceAudio,
                 startSample: finalWindow.startSample,
                 endSample: finalWindow.endSample,
@@ -639,11 +660,11 @@ private final class RollingInferenceSession: @unchecked Sendable {
         let result = RollingSessionResult(
             windows: windows,
             audioSeconds: Double(totalSamples) / Double(sampleRate),
-            totalDecodeSeconds: windows.reduce(0) { $0 + $1.decodeSeconds },
-            finalDecodeSeconds: windows.last(where: \.isFinal)?.decodeSeconds ?? 0,
-            generatedTokens: windows.reduce(0) { $0 + $1.generatedTokens },
-            peakMemoryGB: windows.map(\.peakMemoryGB).max() ?? 0,
-            checkpointCount: windows.filter { !$0.isFinal }.count
+            totalDecodeSeconds: totalDecodeSeconds,
+            finalDecodeSeconds: finalDecodeSeconds,
+            generatedTokens: totalGeneratedTokens,
+            peakMemoryGB: measuredPeakMemoryGB,
+            checkpointCount: checkpointCount
         )
         reset()
         return result
@@ -677,7 +698,7 @@ private final class RollingInferenceSession: @unchecked Sendable {
             repetitionContextSize: 32
         )
         Memory.clearCache()
-        return DecodedRollingWindow(
+        let window = DecodedRollingWindow(
             startSample: startSample,
             endSample: endSample,
             text: output.text,
@@ -686,6 +707,48 @@ private final class RollingInferenceSession: @unchecked Sendable {
             peakMemoryGB: output.peakMemoryUsage,
             isFinal: isFinal
         )
+        totalDecodeSeconds += output.totalTime
+        totalGeneratedTokens += output.generationTokens
+        measuredPeakMemoryGB = max(measuredPeakMemoryGB, output.peakMemoryUsage)
+        if isFinal { finalDecodeSeconds += output.totalTime }
+        return window
+    }
+
+    private func appendWithLocalSeamRepair(_ window: DecodedRollingWindow) {
+        guard let previous = decodedWindows.last,
+              window.startSample < previous.endSample else {
+            decodedWindows.append(window)
+            return
+        }
+
+        let seam = RollingTranscriptAssembler.assemble([
+            .init(
+                startSample: previous.startSample,
+                endSample: previous.endSample,
+                text: previous.text
+            ),
+            .init(startSample: window.startSample, endSample: window.endSample, text: window.text),
+        ])
+        guard !seam.matchedEverySeam else {
+            decodedWindows.append(window)
+            return
+        }
+
+        let repairStart = max(previous.startSample, window.endSample - 12 * sampleRate)
+        guard let repairAudio = samples(from: repairStart, to: window.endSample),
+              !repairAudio.isEmpty else {
+            decodedWindows.append(window)
+            return
+        }
+
+        // Keep the previous hypothesis as the stable prefix and replace only
+        // the failed incoming side with a bounded local re-decode.
+        decodedWindows.append(decode(
+            repairAudio,
+            startSample: repairStart,
+            endSample: window.endSample,
+            isFinal: window.isFinal
+        ))
     }
 
     private func samples(from start: Int, to end: Int) -> [Float]? {
@@ -705,13 +768,18 @@ private final class RollingInferenceSession: @unchecked Sendable {
     private func reset() {
         buffer.removeAll(keepingCapacity: false)
         decodedWindows.removeAll(keepingCapacity: false)
+        totalDecodeSeconds = 0
+        totalGeneratedTokens = 0
+        measuredPeakMemoryGB = 0
+        finalDecodeSeconds = 0
+        checkpointCount = 0
         Memory.clearCache()
     }
 }
 
 private final class RollingSessionFeeder: @unchecked Sendable {
     private let queue = DispatchQueue(
-        label: "io.dictateagent.DictateAgent.rolling-audio",
+        label: "com.xingfuyi.AudioSmith.rolling-audio",
         qos: .userInitiated
     )
     private var session: RollingInferenceSession?

@@ -1,36 +1,32 @@
 # Architecture
 
-Audio Smith is a menu-bar macOS application. AppKit owns global keyboard monitoring, the non-activating overlay, target-app restoration, and paste safety; AVAudioEngine captures audio; MLXAudio Swift runs the pinned Qwen3-ASR model; SwiftUI provides settings and status views.
+Audio Smith is a menu-bar macOS application. AppKit owns global keyboard monitoring, the non-activating overlay, target restoration, and paste safety; AVAudioEngine captures audio; MLXAudio Swift runs Qwen3-ASR; MLX Swift LM runs the optional text refiner; SwiftUI provides settings and status views.
 
 ## Request data flow
 
 ```mermaid
 flowchart LR
-    KeyDown["Selected modifier flagsChanged"] --> Guard["Shortcut and state guards"]
-    Guard --> Snapshot["Foreground target + combined Skills snapshot"]
-    Snapshot --> Audio["AVAudioEngine 16kHz mono Float32"]
-    Audio --> Rolling["Bounded PCM rolling buffer"]
-    Audio --> Panel["Waveform-only non-activating NSPanel"]
-    Rolling --> Checkpoint["16s greedy checkpoint"]
-    Snapshot --> Checkpoint
-    Checkpoint --> Ledger["Committed text + pause-aware overlap"]
-    KeyRelease["Selected modifier release"] --> Tail["Final overlapping-tail decode"]
-    Rolling --> Tail
-    Snapshot --> Tail
-    Ledger --> Stitch["Lexical suffix/prefix stitch"]
-    Tail --> Stitch
-    Stitch --> Cleanup["Whitespace, repetition, punctuation, Skill aliases"]
-    Stitch -. "low-confidence seam" .-> Fallback["Safe whole-utterance pass"]
-    Fallback --> Cleanup
-    Cleanup --> Clipboard["Clipboard"]
-    Clipboard --> Paste["Safe paste into original target"]
+    Down["Push-to-talk down"] --> Snap["Target + mode + selected Skills snapshot"]
+    Snap --> Capture["16kHz mono Float32 capture"]
+    Capture --> Panel["Waveform-only NSPanel"]
+    Capture --> ASR["0.6B ASR: 8s windows, 2s overlap"]
+    ASR --> Ledger["Whole raw transcript ledger"]
+    Up["Push-to-talk up"] --> Tail["Finish real-length ASR tail"]
+    ASR --> Tail
+    Tail --> Mode{"Request snapshot mode"}
+    Mode -->|"Fast"| Clean["Generic deterministic cleanup"]
+    Mode -->|"Professional"| LLM["One whole-text 1.7B refinement"]
+    Snap --> LLM
+    LLM --> Validate["Fidelity + protected-data validation"]
+    Validate -->|"accepted"| Clean
+    Validate -->|"failure / timeout / Esc"| Raw["Complete ASR fallback"]
+    Raw --> Clean
+    Clean --> Paste["Clipboard + safe paste to original target"]
 ```
 
-The panel is visible across Spaces and full-screen applications and is positioned on the screen associated with the original foreground window. It does not become the key application.
+The panel never shows provisional text. Release changes the state to `finalizing` before any model await, freezes and dims the waveform, and starts a time-driven progress ring. Professional mode labels the operation and allows `Esc` to bypass the LLM.
 
 ## State machine
-
-The application exposes one authoritative lifecycle:
 
 ```text
 downloading → loading → ready → recording → finalizing → ready
@@ -38,58 +34,60 @@ downloading → loading → ready → recording → finalizing → ready
      └───────────┴─────────┴──────────┴────────────┴──→ error
 ```
 
-- `downloading`: resumable model transfer into a temporary location, followed by manifest verification and atomic installation.
-- `loading`: model creation and one silent prewarm.
-- `ready`: the model remains resident and a new push-to-talk request may begin.
-- `recording`: audio capture and serialized rolling checkpoints are active; only the waveform is displayed.
-- `finalizing`: capture has stopped; the overlapping tail is decoded, stitched, and cleaned before paste. A whole-utterance pass runs only when a seam cannot be matched safely.
-- `error`: a permission, model, microphone, inference, or memory failure is surfaced without storing speech.
+- `downloading`: missing model files are fetched, verified, and atomically installed.
+- `loading`: required models are loaded and silently prewarmed in series.
+- `ready`: a request can snapshot the current mode and Skills.
+- `recording`: only 0.6B ASR work runs; no text LLM is invoked.
+- `finalizing`: the ASR tail completes, then Professional mode makes exactly one full-transcript LLM request. Fast mode goes directly to cleanup.
+- `error`: permission, model, microphone, inference, or disk failures are surfaced without persisting speech.
 
-`Esc`, a function-key chord, or a failed guard cancels the active request and discards its in-memory buffers.
+Changing settings during a request does not mutate its snapshot. Turning Professional mode off unloads the refiner after the current request. Re-enabling it downloads, verifies, loads, and prewarms the model before the app returns to `ready`.
 
-## Shortcut and target-app handling
+## Shortcut, cancellation, and paste safety
 
-An event tap observes global `flagsChanged` events for the selected physical modifier key. `Fn` is the default; right Option, right Control, and right Command are available and persist across launches. The press is accepted only from `ready`, after the app snapshots the active application, focused element metadata needed for paste safety, current screen, and combined Skills selection. A short silent press produces no text.
+An event tap observes the selected physical modifier key. `Fn` is the default; right Option, right Control, and right Command persist across launches. Function-key or modifier chords cancel dictation without consuming the original shortcut.
 
-If F1–F12 participates while Fn is held, or any normal key participates while another activation modifier is held, Audio Smith cancels recording and does not consume the original shortcut. Final paste is skipped for secure input elements or when the original target is no longer valid; the transcript remains on the clipboard.
+During recording, `Esc` cancels the entire request. During Professional finalization it marks the generation result unusable and pastes the complete ASR fallback as soon as the ASR tail is available; a late model result is ignored through the request UUID. Secure fields and invalid targets never receive simulated paste, but the final text remains on the clipboard.
 
-## Audio and rolling long-context inference
+## ASR windows and short audio
 
-AVAudioEngine input is converted to 16kHz, one-channel Float32 samples before entering the inference layer. The two independent timing parameters are the model's native approximately 8-second encoder window and Audio Smith's 16-second refinement window. The nominal overlap is derived as 25% of the refinement window, so the default target is a 4-second overlap and a 12-second stride.
+The ASR model is the pinned `mlx-community/Qwen3-ASR-0.6B-8bit`. Audio is processed in eight-second windows with a nominal two-second overlap and six-second stride. After a completed window, punctuation provides only a coarse semantic hint. The actual boundary is selected from a measured low-energy pause of at least 120ms in the 50–87.5% search region near the 75% checkpoint. If no defensible pause exists, the stride remains exactly six seconds.
 
-After a complete refinement window is decoded, punctuation in its hypothesis supplies a coarse semantic boundary hint. Because plain Qwen ASR output has no reliable per-word timestamps, Audio Smith never cuts directly at a character-derived timestamp. Instead, it searches the latter half of the waveform for a low-energy pause of at least 120ms near the hinted 75% checkpoint, keeps at least two seconds of audio overlap, and advances the next window to the center of that pause. A flat envelope or missing pause falls back deterministically to the nominal 12-second stride.
+All MLX ASR calls run serially on a dedicated queue. The realtime microphone callback only appends samples. Adjacent hypotheses use lexical longest-suffix/longest-prefix stitching that ignores case, spacing, and punctuation. A recovery decode is bounded to at most 12 seconds; the application does not re-run a complete long recording merely because a local seam is weak.
 
-During capture, raw PCM enters a bounded rolling buffer. Audio that ends at or before 16 seconds is decoded exactly once during finalization. Once capture extends beyond 16 seconds, the app performs the first greedy checkpoint; subsequent full checkpoints cover `[12, 28]`, `[24, 40]`, and so on. Each call uses the pinned MLXAudio Swift public Qwen generation API, whose audio tower handles its native encoder blocks internally. MLX passes are serialized on a dedicated queue, while the realtime audio callback only appends samples to that queue. The overlay stays waveform-only, so internal checkpoint corrections cannot cause visible text jitter.
+For 0.5–8 seconds, ASR receives the true request length. A shorter voiced request is padded with trailing zeros only to the model's 0.5-second minimum. If voiced audio produces empty text, one and only one retry appends 250ms of silence. Pure silence is rejected without inference. Reported duration and stitch locations always use unpadded audio time.
 
-The model input for an extremely short final request or tail is padded with trailing zero-valued samples only up to Qwen3-ASR's 0.5-second minimum. The native eight-second encoder block is treated as a processing window, not a minimum request length. Window metadata, performance audio duration, overlap boundaries, and pasted content continue to use the real unpadded duration. Empty and silent requests are rejected before inference.
+The five-minute request limit bounds capture. At 16kHz Float32, retaining a five-minute waveform for tail and local recovery is about 19.2MB. It is released after completion or cancellation.
 
-Adjacent hypotheses are combined with a lexical longest-suffix/longest-prefix seam that ignores case, whitespace, and punctuation while retaining the newer wording inside the adaptive overlap. On shortcut release, Audio Smith decodes only the unfinished tail beginning at the next pause-aware window start. If the seam has no reliable two-unit anchor, it refuses to guess and runs one safe whole-utterance pass instead. This fallback protects transcript integrity but has higher release latency.
+## Whole-transcript professional refinement
 
-The five-minute request limit bounds a single capture. The rolling inference buffer retains only the audio needed by the next window. `AudioCapture` separately retains the request waveform for the low-confidence fallback; 16kHz Float32 audio is approximately 19.2MB at the five-minute limit and is discarded after completion or cancellation. The rolling path still requires real five-minute memory and latency validation; the design alone is not evidence that the 5GB release gate passes.
+The optional refiner is the pinned `Qwen/Qwen3-1.7B-MLX-4bit`. It is never called for a segment or during recording. After ASR finishes, the complete raw transcript and the request's Skill snapshot are submitted once with thinking disabled and strict copy-editing instructions: only homophones, terminology, capitalization, duplicate fragments, spacing, and punctuation may change.
+
+Input is limited to 24K tokens while reserving at least 8K tokens for output. Skill context is trimmed before transcript text; if the complete transcript itself cannot fit, the request safely uses the ASR fallback. The output budget is `original tokens × 1.25 + 32`, capped at 8K. Timeout is `2 seconds + budget / 20 tokens/s`, clamped to 3–45 seconds.
+
+The candidate must be nonempty and free of thinking, role, and protocol text; stay within the configured length and normalized edit-distance bounds; and preserve every number sequence, URL, and email address. Any exception, timeout, cancellation, or validation failure uses the complete ASR text. The refiner is not allowed to answer, summarize, translate, or expand the speaker.
 
 ## Skill snapshot
 
-Before each accepted push-to-talk press, the Skill repository rescans:
+Before every accepted key press, Audio Smith rescans:
 
 ```text
-~/Library/Application Support/DictateAgent/Skills/<name>/SKILL.md
+~/Library/Application Support/AudioSmith/Skills/<name>/SKILL.md
 ```
 
-The product seeds one editable AIGC starter into the user directory. Advanced users may add more Skills, which are presented as independent checkboxes. The selected set is sorted deterministically, deduplicated, and combined into an immutable value owned by that request. Markdown body sections other than Vocabulary become bounded ASR context; Vocabulary becomes preferred terms and aliases. The combined prompt is capped at 8,000 characters and 300 unique preferred terms; no selection produces the General snapshot. Edits saved during recording cannot alter active inference and are discovered on the next request. Skills never execute code, tools, scripts, or linked resources. See [Skills](SKILLS.md).
+The checked set is sorted, deduplicated, bounded, and captured as one immutable `DomainSkill`. Up to 300 preferred terms and 8,000 prompt characters are available. Skills never enter ASR. They enter only the single Professional-mode refinement prompt and the final safe alias cleanup. Fast mode uses the General snapshot and ignores domain replacements. Skill documents are data and never execute code, tools, scripts, or linked resources. See [Skills](SKILLS.md).
 
-The immutable request snapshot is supplied to every rolling checkpoint, the final tail, and any safety fallback. Deterministic alias replacement and punctuation/spacing cleanup then run once; no second local language model is loaded.
+## Model installation and source selection
 
-## Model installation and offline boundary
+Separate manifests pin the ASR and refiner repositories, immutable Hugging Face revisions, file sizes, and SHA-256 digests. The same content manifest validates ModelScope. Automatic mode races only the two mirrors' small `config.json` files and accepts the first response whose size and SHA-256 match; no third-party IP-location service is used.
 
-The model manifest fixes the Hugging Face revision, expected files, sizes, and SHA-256 values. Downloads support resume, use temporary paths, verify every file, and install atomically. Model weights are neither bundled into the app source nor committed to Git.
+Downloads support HTTP Range resume. Three consecutive failures switch to the other mirror; already verified files remain, while the current incomplete file is discarded before switching. Installation uses a staging directory and atomic move. Once installed, startup and dictation do not probe the network.
 
-After a verified installation, capture, inference, Skill loading, cleanup, and paste are local. The core request path does not require network access and does not persist audio or transcript history.
+## MLX serialization and memory gate
 
-## Memory gate
+ASR checkpoints, ASR finalization, refiner loading, prewarm, and generation are sequenced so the two resident models do not infer concurrently. Professional mode keeps both models resident for warm first use. Fast mode unloads the 1.7B container and clears eligible MLX caches while leaving verified weights on disk.
 
-The 1.7B 8-bit model stays resident to avoid a cold first request. Startup performs a silent prewarm; each checkpoint and request finalization clear eligible MLX caches, and cancellation releases the rolling PCM and hypotheses.
+- 4.7GB process footprint: runtime diagnostic warning
+- 5.0GB process footprint: Professional-mode binary-release blocker
 
-- 4.7GB physical footprint: runtime diagnostic warning
-- 5.0GB physical footprint: binary-release blocker
-
-These thresholds cover the complete app process, not only tensor allocations. Passing the gate requires live five-minute testing on both the M1 Pro 32GB development machine and at least one 24GB Apple Silicon Mac. Current evidence is documented in [Benchmarks](BENCHMARKS.md).
+These limits cover the complete process. Passing requires live five-minute testing on the M1 Pro 32GB development machine and at least one 24GB Apple Silicon Mac. Current evidence is documented in [Benchmarks](BENCHMARKS.md).

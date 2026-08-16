@@ -6,20 +6,23 @@ All notable changes to Audio Smith will be documented here. The project follows 
 
 ### Changed
 
-- Renamed the user-facing product from Dictate Agent to Audio Smith while preserving the existing bundle identity and data paths for permission compatibility.
+- Replaced the 1.7B ASR-only path with Qwen3-ASR-0.6B 8-bit recognition plus an optional Qwen3-1.7B MLX 4-bit whole-transcript refiner.
+- Added persistent Professional and Fast modes. Professional uses one post-release refinement with all selected Skills; Fast unloads the refiner and performs generic cleanup only.
+- Unified the application target, executable, module, bundle identifier, support directory, log subsystem, documentation, and installation path under the Audio Smith identity.
+- Replaced the legacy 1.7B ASR override key with `AUDIO_SMITH_ASR_MODEL_PATH` so old development environments cannot be mistaken for the new 0.6B model.
 - Isolated the Xcode unit-test host under a `.TestHost` bundle identifier and made the development installer verify the launched `/Applications` executable.
-- Reduced the default rolling refinement window to 16 seconds with a nominal 4-second overlap and 12-second stride to lower release-to-paste latency.
-- Made requests up to 16 seconds use one final pass, reduced extremely short input padding to Qwen3-ASR's 0.5-second minimum, lowered the short decode token floor, and relaxed the voice gate for brief commands.
-- Replaced the finalizing text in the recording overlay with a custom high-contrast indeterminate spinner that remains visible on the dark capsule across macOS appearances.
+- Set ASR to eight-second windows with nominal two-second overlap, six-second stride, pause-aware boundaries, and at most twelve-second local seam repair.
+- Made 0.5–8 second audio use its true length; shorter voiced input pads only to 0.5 seconds and an empty result receives one 250ms-silence retry.
+- Added a continuously time-driven Professional-refinement spinner and `Esc` fallback to complete ASR text.
 - Removed the rectangular AppKit window shadow and translucent material backing from the recording overlay so only the solid capsule is visible.
-- Added punctuation-guided, pause-aware rolling boundaries near the nominal 75% checkpoint, with a two-second minimum overlap and deterministic fixed-stride fallback.
+- Added strict refiner candidate validation for length, normalized edit distance, protocol output, numbers, URLs, and email addresses.
 
 ### Added
 
 - Native Apple Silicon menu-bar application with a configurable hold-to-dictate key and a non-activating waveform-only overlay.
 - Branded menu-bar header with three concise actions for shortcut selection, System Settings, and Quit.
-- Local Qwen3-ASR-1.7B MLX 8-bit inference with an 8-second native encoder window, a 16-second rolling refinement window, nominal 25% overlap with pause-aware boundaries, and tail-only finalization after shortcut release.
-- Resumable, revision-pinned and SHA-256-verified model installation.
+- Local Qwen3-ASR-0.6B MLX 8-bit inference and Qwen3-1.7B MLX 4-bit professional refinement.
+- Resumable, revision-pinned and SHA-256-verified installation from automatically selected or manually chosen ModelScope and Hugging Face mirrors.
 - Standard single-file `SKILL.md` support with bounded Markdown guidance, parsed vocabulary aliases, and optional multi-selection for advanced users.
 - One focused, editable AIGC starter Skill with classified LLM/Transformer, Diffusion, Flow Matching, DiT, and runtime domain maps, plus context-aware Mandarin pronunciation guidance and a copyable medical-dictation example.
 - Memory diagnostics, privacy safeguards, unit tests, CI and notarized DMG release automation.

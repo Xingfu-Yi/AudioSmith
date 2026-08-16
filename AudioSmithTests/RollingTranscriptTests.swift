@@ -1,14 +1,14 @@
 import XCTest
-@testable import DictateAgent
+@testable import AudioSmith
 
 final class RollingTranscriptTests: XCTestCase {
     func testStandardConfigurationUsesDerivedTwentyFivePercentOverlap() {
         let configuration = RollingInferenceConfiguration.standard
 
         XCTAssertEqual(configuration.baseEncoderWindowSeconds, 8)
-        XCTAssertEqual(configuration.refinementWindowSeconds, 16)
-        XCTAssertEqual(configuration.overlapSeconds, 4)
-        XCTAssertEqual(configuration.strideSeconds, 12)
+        XCTAssertEqual(configuration.refinementWindowSeconds, 8)
+        XCTAssertEqual(configuration.overlapSeconds, 2)
+        XCTAssertEqual(configuration.strideSeconds, 6)
     }
 
     func testSixteenSecondRefinementWindowDerivesFourSecondOverlap() {
@@ -22,7 +22,7 @@ final class RollingTranscriptTests: XCTestCase {
     }
 
     func testOneRefinementWindowWaitsForFinalization() {
-        let end = 16 * 16_000
+        let end = 8 * 16_000
 
         XCTAssertFalse(RollingWindowPlanner.shouldDecodeCheckpoint(
             totalSamples: end,
@@ -43,13 +43,11 @@ final class RollingTranscriptTests: XCTestCase {
     }
 
     func testEveryShortBoundaryUsesOneWholeRequestFinalWindow() {
-        let checkpointEnd = 16 * 16_000
+        let checkpointEnd = 8 * 16_000
         let durations = [
             1,
             8 * 16_000 - 1,
             8 * 16_000,
-            16 * 16_000 - 1,
-            16 * 16_000,
         ]
 
         for totalSamples in durations {
@@ -71,18 +69,18 @@ final class RollingTranscriptTests: XCTestCase {
     func testFinalTailRetainsOverlapAfterCheckpoint() {
         XCTAssertEqual(
             RollingWindowPlanner.finalWindow(
-                totalSamples: 20 * 16_000,
-                lastCheckpointEndSample: 16 * 16_000,
-                nextWindowStartSample: 12 * 16_000
+                totalSamples: 12 * 16_000,
+                lastCheckpointEndSample: 8 * 16_000,
+                nextWindowStartSample: 6 * 16_000
             ),
-            .init(startSample: 12 * 16_000, endSample: 20 * 16_000)
+            .init(startSample: 6 * 16_000, endSample: 12 * 16_000)
         )
     }
 
     func testPauseAwareBoundaryPrefersNaturalPauseNearNominalCheckpoint() {
         let sampleRate = 1_000
-        var samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
-        for index in 11_650..<12_050 { samples[index] = 0.001 }
+        var samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
+        for index in 5_750..<6_050 { samples[index] = 0.001 }
 
         let selection = RollingWindowBoundarySelector.select(
             samples: samples,
@@ -92,12 +90,12 @@ final class RollingTranscriptTests: XCTestCase {
         )
 
         XCTAssertTrue(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 11_850, accuracy: 40)
+        XCTAssertEqual(selection.offsetSamples, 5_900, accuracy: 40)
     }
 
     func testPauseAwareBoundaryFallsBackToNominalStrideWithoutPause() {
         let sampleRate = 1_000
-        let samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
+        let samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
 
         let selection = RollingWindowBoundarySelector.select(
             samples: samples,
@@ -107,13 +105,13 @@ final class RollingTranscriptTests: XCTestCase {
         )
 
         XCTAssertFalse(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 12 * sampleRate)
+        XCTAssertEqual(selection.offsetSamples, 6 * sampleRate)
     }
 
     func testPauseBeforeSearchRangeIsIgnored() {
         let sampleRate = 1_000
-        var samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
-        for index in 5_000..<5_500 { samples[index] = 0.001 }
+        var samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
+        for index in 2_500..<3_000 { samples[index] = 0.001 }
 
         let selection = RollingWindowBoundarySelector.select(
             samples: samples,
@@ -123,26 +121,26 @@ final class RollingTranscriptTests: XCTestCase {
         )
 
         XCTAssertFalse(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 12 * sampleRate)
+        XCTAssertEqual(selection.offsetSamples, 6 * sampleRate)
     }
 
     func testAdaptiveFinalTailStartsAtSelectedBoundary() {
         XCTAssertEqual(
             RollingWindowPlanner.finalWindow(
-                totalSamples: 21 * 16_000,
-                lastCheckpointEndSample: 16 * 16_000,
-                nextWindowStartSample: 11 * 16_000
+                totalSamples: 13 * 16_000,
+                lastCheckpointEndSample: 8 * 16_000,
+                nextWindowStartSample: 5 * 16_000
             ),
-            .init(startSample: 11 * 16_000, endSample: 21 * 16_000)
+            .init(startSample: 5 * 16_000, endSample: 13 * 16_000)
         )
     }
 
     func testExactCompletedWindowDoesNotDecodeOverlapAgain() {
         XCTAssertNil(
             RollingWindowPlanner.finalWindow(
-                totalSamples: 16 * 16_000,
-                lastCheckpointEndSample: 16 * 16_000,
-                nextWindowStartSample: 12 * 16_000
+                totalSamples: 8 * 16_000,
+                lastCheckpointEndSample: 8 * 16_000,
+                nextWindowStartSample: 6 * 16_000
             )
         )
     }

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-ROOTS = (Path("DictateAgent/Resources/Skills"), Path("Examples/Skills"))
+ROOTS = (Path("AudioSmith/Resources/Skills"), Path("Examples/Skills"))
 NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CONTEXT_HEADINGS = {"dictation context", "context", "听写上下文", "上下文"}
 VOCABULARY_HEADINGS = {
