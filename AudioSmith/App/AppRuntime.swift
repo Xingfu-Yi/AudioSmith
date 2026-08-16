@@ -436,7 +436,10 @@ final class AppRuntime {
         // Skill pronunciation rows are contextual hints for the professional
         // refiner, never unconditional string replacements. A spoken form such
         // as "unit" may legitimately be an ordinary English word.
-        let text = TextCleaner.clean(rawText)
+        let canonicalTerms = request.refinementMode == .professional
+            ? request.skill.terms.map(\.preferred)
+            : []
+        let text = TextCleaner.clean(rawText, canonicalTerms: canonicalTerms)
         let target = targetApplication
         targetApplication = nil
 

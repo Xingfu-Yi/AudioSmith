@@ -27,6 +27,26 @@ final class TextCleanerTests: XCTestCase {
         )
     }
 
+    func testRepairsPunctuationInsertedInsideSelectedCanonicalTerm() {
+        XCTAssertEqual(
+            TextCleaner.clean(
+                "模型使用 RMS。norm 和 Ada L N。",
+                canonicalTerms: ["RMSNorm", "AdaLN"]
+            ),
+            "模型使用 RMSNorm 和 AdaLN。"
+        )
+    }
+
+    func testDoesNotApplyPhoneticSkillAliasDuringDeterministicCleanup() {
+        XCTAssertEqual(
+            TextCleaner.clean(
+                "a unit test",
+                canonicalTerms: ["UNet"]
+            ),
+            "a unit test"
+        )
+    }
+
     func testAppliesLongestReplacementFirst() {
         let result = TextCleaner.clean(
             "Use MLX Audio Swift and M L X.",

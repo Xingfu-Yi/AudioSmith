@@ -33,7 +33,11 @@ enum TextCleaner {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func clean(_ input: String, replacements: [String: String] = [:]) -> String {
+    static func clean(
+        _ input: String,
+        replacements: [String: String] = [:],
+        canonicalTerms: [String] = []
+    ) -> String {
         var text = stripModelProtocol(input)
         text = replacing(#"[\t\n\r ]+"#, in: text, with: " ")
         text = replacing(#"\s+([，。！？；：、,.!?;:])"#, in: text, with: "$1")
@@ -41,6 +45,7 @@ enum TextCleaner {
         text = replacing(#"([（【“‘])\s+"#, in: text, with: "$1")
         text = replacing(#"\s+([）】”’])"#, in: text, with: "$1")
         text = replacing(#"([\p{Han}])\s+([\p{Han}])"#, in: text, with: "$1$2")
+        text = repairSplitCanonicalTerms(text, canonicalTerms: canonicalTerms)
         text = collapseRepeatedSentences(text)
         text = collapsePrefixRepeatedSentences(text)
 
@@ -48,6 +53,35 @@ enum TextCleaner {
             text = replacingAlias(source, in: text, with: target)
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Restores a selected Skill's canonical Latin spelling when ASR inserts
+    /// punctuation or spaces inside the term, for example `RMS。norm` ->
+    /// `RMSNorm`. This does not replace phonetic aliases such as `unit`; it only
+    /// rejoins the exact letters of an already-recognized canonical term.
+    private static func repairSplitCanonicalTerms(
+        _ input: String,
+        canonicalTerms: [String]
+    ) -> String {
+        var text = input
+        for canonical in canonicalTerms.sorted(by: { $0.count > $1.count }) {
+            let characters = canonical.unicodeScalars.filter {
+                CharacterSet.alphanumerics.contains($0)
+            }
+            guard characters.count >= 3,
+                  characters.contains(where: { $0.isASCII }) else { continue }
+
+            let body = characters
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: #"[\s\p{P}]*"#)
+            let pattern = #"(?i)(?<![\p{L}\p{N}_])"# + body + #"(?![\p{L}\p{N}_])"#
+            text = replacing(
+                pattern,
+                in: text,
+                with: NSRegularExpression.escapedTemplate(for: canonical)
+            )
+        }
+        return text
     }
 
     /// English aliases are matched as complete words so a short pronunciation
