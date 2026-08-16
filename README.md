@@ -62,7 +62,7 @@ DICTATE_AGENT_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
 ## How It Works
 
 1. Pressing the selected push-to-talk key snapshots the foreground app and all selected Skills, then starts 16kHz mono capture. The overlay shows only a waveform and elapsed time, so provisional text cannot distract the speaker.
-2. Qwen keeps its native approximately eight-second encoder blocks. Audio Smith decodes a 16-second rolling refinement window in the background, with a derived 25% overlap: 4 seconds of overlap and a 12-second stride. Only the waveform is shown.
+2. Qwen keeps its native approximately eight-second encoder blocks. Audio Smith decodes a 16-second rolling refinement window in the background. Its nominal 25% overlap gives a 12-second stride, but completed windows may advance to a nearby punctuation-guided acoustic pause in the latter half while retaining at least two seconds of overlap. If no reliable pause exists, the stride remains exactly 12 seconds. Only the waveform is shown.
 3. Requests up to 16 seconds run one whole-request final pass. Extremely short inputs receive trailing silence only up to the model's 0.5-second minimum; their real duration is unchanged. Longer requests decode only the final overlapping tail when the key is released, while a low-confidence seam falls back to one safe whole-utterance pass.
 4. Deterministic terminology and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
 

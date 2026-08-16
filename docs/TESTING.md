@@ -12,7 +12,9 @@
 
 - recording shows only waveform and elapsed time; no transcript is emitted before shortcut release
 - the base encoder window is 8 seconds and the default refinement window is 16 seconds
-- overlap is derived as 25% of the refinement window; the default is 4 seconds with a 12-second stride
+- nominal overlap is derived as 25% of the refinement window; the default target is 4 seconds with a 12-second stride
+- a qualifying 120ms+ acoustic pause near a punctuation-guided checkpoint can move the next window start within the latter half, while retaining at least two seconds of overlap
+- a missing or ambiguous pause falls back exactly to the nominal 12-second stride
 - requests up to and including 16 seconds run exactly one final decode
 - extremely short final requests and tails are padded only to the model's 0.5-second minimum, while reported duration and stitch boundaries remain unpadded
 - completed checkpoints run serially and never block microphone capture on the audio callback

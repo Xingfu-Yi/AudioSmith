@@ -36,7 +36,7 @@ final class RollingTranscriptTests: XCTestCase {
             RollingWindowPlanner.finalWindow(
                 totalSamples: end,
                 lastCheckpointEndSample: nil,
-                overlapSamples: 4 * 16_000
+                nextWindowStartSample: nil
             ),
             .init(startSample: 0, endSample: end)
         )
@@ -61,7 +61,7 @@ final class RollingTranscriptTests: XCTestCase {
                 RollingWindowPlanner.finalWindow(
                     totalSamples: totalSamples,
                     lastCheckpointEndSample: nil,
-                    overlapSamples: 4 * 16_000
+                    nextWindowStartSample: nil
                 ),
                 .init(startSample: 0, endSample: totalSamples)
             )
@@ -73,9 +73,77 @@ final class RollingTranscriptTests: XCTestCase {
             RollingWindowPlanner.finalWindow(
                 totalSamples: 20 * 16_000,
                 lastCheckpointEndSample: 16 * 16_000,
-                overlapSamples: 4 * 16_000
+                nextWindowStartSample: 12 * 16_000
             ),
             .init(startSample: 12 * 16_000, endSample: 20 * 16_000)
+        )
+    }
+
+    func testPauseAwareBoundaryPrefersNaturalPauseNearNominalCheckpoint() {
+        let sampleRate = 1_000
+        var samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
+        for index in 11_650..<12_050 { samples[index] = 0.001 }
+
+        let selection = RollingWindowBoundarySelector.select(
+            samples: samples,
+            transcript: "先介绍模型结构，然后讨论训练方法，最后说明推理。",
+            sampleRate: sampleRate,
+            minimumOverlapSamples: 2 * sampleRate
+        )
+
+        XCTAssertTrue(selection.usedPause)
+        XCTAssertEqual(selection.offsetSamples, 11_850, accuracy: 40)
+    }
+
+    func testPauseAwareBoundaryFallsBackToNominalStrideWithoutPause() {
+        let sampleRate = 1_000
+        let samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
+
+        let selection = RollingWindowBoundarySelector.select(
+            samples: samples,
+            transcript: "continuous speech without a pause",
+            sampleRate: sampleRate,
+            minimumOverlapSamples: 2 * sampleRate
+        )
+
+        XCTAssertFalse(selection.usedPause)
+        XCTAssertEqual(selection.offsetSamples, 12 * sampleRate)
+    }
+
+    func testPauseBeforeSearchRangeIsIgnored() {
+        let sampleRate = 1_000
+        var samples = Array(repeating: Float(0.20), count: 16 * sampleRate)
+        for index in 5_000..<5_500 { samples[index] = 0.001 }
+
+        let selection = RollingWindowBoundarySelector.select(
+            samples: samples,
+            transcript: "前半段有停顿，但后半段保持连续语音",
+            sampleRate: sampleRate,
+            minimumOverlapSamples: 2 * sampleRate
+        )
+
+        XCTAssertFalse(selection.usedPause)
+        XCTAssertEqual(selection.offsetSamples, 12 * sampleRate)
+    }
+
+    func testAdaptiveFinalTailStartsAtSelectedBoundary() {
+        XCTAssertEqual(
+            RollingWindowPlanner.finalWindow(
+                totalSamples: 21 * 16_000,
+                lastCheckpointEndSample: 16 * 16_000,
+                nextWindowStartSample: 11 * 16_000
+            ),
+            .init(startSample: 11 * 16_000, endSample: 21 * 16_000)
+        )
+    }
+
+    func testExactCompletedWindowDoesNotDecodeOverlapAgain() {
+        XCTAssertNil(
+            RollingWindowPlanner.finalWindow(
+                totalSamples: 16 * 16_000,
+                lastCheckpointEndSample: 16 * 16_000,
+                nextWindowStartSample: 12 * 16_000
+            )
         )
     }
 

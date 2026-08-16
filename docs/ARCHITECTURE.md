@@ -13,7 +13,7 @@ flowchart LR
     Audio --> Panel["Waveform-only non-activating NSPanel"]
     Rolling --> Checkpoint["16s greedy checkpoint"]
     Snapshot --> Checkpoint
-    Checkpoint --> Ledger["Committed text + 25% overlap"]
+    Checkpoint --> Ledger["Committed text + pause-aware overlap"]
     KeyRelease["Selected modifier release"] --> Tail["Final overlapping-tail decode"]
     Rolling --> Tail
     Snapshot --> Tail
@@ -55,13 +55,15 @@ If F1–F12 participates while Fn is held, or any normal key participates while 
 
 ## Audio and rolling long-context inference
 
-AVAudioEngine input is converted to 16kHz, one-channel Float32 samples before entering the inference layer. The two independent timing parameters are the model's native approximately 8-second encoder window and Audio Smith's 16-second refinement window. Overlap is always derived as 25% of the refinement window, so the default overlap is 4 seconds and the stride is 12 seconds.
+AVAudioEngine input is converted to 16kHz, one-channel Float32 samples before entering the inference layer. The two independent timing parameters are the model's native approximately 8-second encoder window and Audio Smith's 16-second refinement window. The nominal overlap is derived as 25% of the refinement window, so the default target is a 4-second overlap and a 12-second stride.
+
+After a complete refinement window is decoded, punctuation in its hypothesis supplies a coarse semantic boundary hint. Because plain Qwen ASR output has no reliable per-word timestamps, Audio Smith never cuts directly at a character-derived timestamp. Instead, it searches the latter half of the waveform for a low-energy pause of at least 120ms near the hinted 75% checkpoint, keeps at least two seconds of audio overlap, and advances the next window to the center of that pause. A flat envelope or missing pause falls back deterministically to the nominal 12-second stride.
 
 During capture, raw PCM enters a bounded rolling buffer. Audio that ends at or before 16 seconds is decoded exactly once during finalization. Once capture extends beyond 16 seconds, the app performs the first greedy checkpoint; subsequent full checkpoints cover `[12, 28]`, `[24, 40]`, and so on. Each call uses the pinned MLXAudio Swift public Qwen generation API, whose audio tower handles its native encoder blocks internally. MLX passes are serialized on a dedicated queue, while the realtime audio callback only appends samples to that queue. The overlay stays waveform-only, so internal checkpoint corrections cannot cause visible text jitter.
 
 The model input for an extremely short final request or tail is padded with trailing zero-valued samples only up to Qwen3-ASR's 0.5-second minimum. The native eight-second encoder block is treated as a processing window, not a minimum request length. Window metadata, performance audio duration, overlap boundaries, and pasted content continue to use the real unpadded duration. Empty and silent requests are rejected before inference.
 
-Adjacent hypotheses are combined with a lexical longest-suffix/longest-prefix seam that ignores case, whitespace, and punctuation while retaining the newer wording inside the overlap. On shortcut release, Audio Smith decodes only the unfinished tail beginning at the previous checkpoint's overlap. If the seam has no reliable two-unit anchor, it refuses to guess and runs one safe whole-utterance pass instead. This fallback protects transcript integrity but has higher release latency.
+Adjacent hypotheses are combined with a lexical longest-suffix/longest-prefix seam that ignores case, whitespace, and punctuation while retaining the newer wording inside the adaptive overlap. On shortcut release, Audio Smith decodes only the unfinished tail beginning at the next pause-aware window start. If the seam has no reliable two-unit anchor, it refuses to guess and runs one safe whole-utterance pass instead. This fallback protects transcript integrity but has higher release latency.
 
 The five-minute request limit bounds a single capture. The rolling inference buffer retains only the audio needed by the next window. `AudioCapture` separately retains the request waveform for the low-confidence fallback; 16kHz Float32 audio is approximately 19.2MB at the five-minute limit and is discarded after completion or cancellation. The rolling path still requires real five-minute memory and latency validation; the design alone is not evidence that the 5GB release gate passes.
 

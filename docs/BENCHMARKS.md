@@ -26,7 +26,7 @@ The two rows use different processes and workloads. Their memory values must not
 
 - Capture UI: waveform and elapsed time only; no provisional transcript
 - Base encoder window: Qwen's native approximately eight-second blocks
-- Refinement window: 16 seconds with a derived 25% overlap (4-second overlap, 12-second stride)
+- Refinement window: 16 seconds with a nominal derived 25% overlap (4-second overlap, 12-second target stride); a punctuation-guided acoustic pause may adjust the actual boundary while retaining at least two seconds of overlap
 - Short-request policy: requests up to 16 seconds receive one final pass; final model inputs shorter than 8 seconds receive trailing-silence padding
 - During capture: serial background checkpoints over the rolling window; the UI remains waveform-only
 - Release-time transcription: only the final overlapping tail window, unless a low-confidence seam requires the safe full-pass fallback
@@ -69,7 +69,7 @@ No “high accuracy” claim should be made before these results are available. 
 2. Record baseline physical footprint after memory settles.
 3. Run at least 30 mixed-duration requests, including one continuous five-minute request.
 4. Sample physical footprint throughout capture, rolling checkpoint decoding, final-tail decoding, fallback decoding, and cleanup.
-5. Verify the waveform stays responsive and the final text covers the complete utterance without duplicate or lost text across 25%-overlap seams.
+5. Verify the waveform stays responsive and the final text covers the complete utterance without duplicate or lost text across nominal and pause-adjusted overlap seams.
 6. Report p50, p95, maximum, thermal state, and whether the Mac was on battery power.
 7. Repeat after sleep/wake and after changing the active microphone.
 
