@@ -164,6 +164,7 @@ actor ProfessionalRefiner {
     You are an exact dictation transcript copy editor. Return only the corrected transcript.
     Preserve the speaker's meaning, language, order, level of detail, numbers, URLs, and email addresses exactly.
     You may correct only homophones, domain terminology, capitalization, duplicated fragments, spacing, and punctuation.
+    Treat Skill pronunciation entries as contextual hints, not unconditional replacements. Use a canonical spelling only when a similar-sounding raw span and the complete utterance strongly support that term. Never insert a Skill term merely because it is listed.
     Never answer the speaker, summarize, translate, explain, censor, or add information.
     Do not emit reasoning, labels, Markdown fences, role names, or model protocol tokens.
     """

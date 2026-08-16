@@ -2,16 +2,17 @@ import XCTest
 @testable import AudioSmith
 
 final class DomainSkillTests: XCTestCase {
-    func testSkillBuildsBoundedPromptAndReplacementMap() {
+    func testSkillBuildsBoundedPronunciationPrompt() {
         let skill = DomainSkill(
             id: "medical",
             name: "医学",
             description: "test",
             context: String(repeating: "x", count: 5_000),
-            terms: [.init(preferred: "HbA1c", aliases: ["H B A one C"])]
+            terms: [.init(preferred: "HbA1c", spokenForms: ["H B A one C"])]
         )
         XCTAssertLessThanOrEqual(skill.promptContext.count, DomainSkill.promptCharacterLimit)
-        XCTAssertEqual(skill.deterministicReplacements["H B A one C"], "HbA1c")
+        XCTAssertTrue(skill.promptContext.contains("HbA1c <- H B A one C"))
+        XCTAssertTrue(skill.promptContext.contains("never inject a listed term"))
     }
 
     func testGeneralSkillHasNoContext() {
@@ -25,7 +26,7 @@ final class DomainSkillTests: XCTestCase {
             description: "AI terms",
             context: "The speaker is discussing diffusion models.",
             terms: [
-                .init(preferred: "epsilon", aliases: ["App Store"]),
+                .init(preferred: "epsilon", spokenForms: ["App Store"]),
                 .init(preferred: "MLX")
             ]
         )
@@ -35,7 +36,7 @@ final class DomainSkillTests: XCTestCase {
             description: "Training terms",
             context: "The speaker is discussing training frameworks.",
             terms: [
-                .init(preferred: "epsilon", aliases: ["Epsilon"]),
+                .init(preferred: "epsilon", spokenForms: ["Epsilon"]),
                 .init(preferred: "training framework")
             ]
         )
@@ -46,7 +47,7 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertTrue(snapshot.promptContext.contains("diffusion models"))
         XCTAssertTrue(snapshot.promptContext.contains("training frameworks"))
         XCTAssertEqual(snapshot.terms.map(\.preferred), ["epsilon", "MLX", "training framework"])
-        XCTAssertEqual(snapshot.deterministicReplacements["App Store"], "epsilon")
+        XCTAssertEqual(snapshot.terms.first?.spokenForms, ["App Store"])
         XCTAssertLessThanOrEqual(snapshot.promptContext.count, DomainSkill.promptCharacterLimit)
     }
 
@@ -101,7 +102,7 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertFalse(skill.context.contains("## Vocabulary"))
         XCTAssertEqual(skill.terms.count, 2)
         XCTAssertEqual(skill.terms[0].preferred, "HbA1c")
-        XCTAssertEqual(skill.terms[0].aliases, ["H B A one C", "糖化血红蛋白"])
+        XCTAssertEqual(skill.terms[0].spokenForms, ["H B A one C", "糖化血红蛋白"])
     }
 
     func testPassesGuidanceAndExamplesAsContextButParsesVocabularySeparately() throws {
@@ -136,7 +137,40 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertTrue(skill.context.contains("Do not translate technical terms."))
         XCTAssertTrue(skill.context.contains("## Examples"))
         XCTAssertFalse(skill.context.contains("## Vocabulary"))
-        XCTAssertEqual(skill.terms, [.init(preferred: "epsilon", aliases: ["艾普西龙"])])
+        XCTAssertEqual(skill.terms, [.init(preferred: "epsilon", spokenForms: ["艾普西龙"])])
+    }
+
+    func testParsesCompactPronunciationTable() throws {
+        let markdown = #"""
+        ---
+        name: aigc
+        description: Improve pronunciation-aware AIGC dictation.
+        ---
+
+        # AIGC
+
+        ## 使用说明
+
+        结合完整上下文修正发音相近的术语，不要强行替换。
+
+        ## 专有名词与读法
+
+        | 规范写法 | 读法或常见误识别 |
+        |---|---|
+        | Qwen-Image-Edit | 千问 Image Edit |
+        | Qwen | 千问 |
+        | token | 偷啃；托肯 |
+        """#
+
+        let skill = try SkillDocumentParser.parse(markdown, folderName: "aigc")
+
+        XCTAssertTrue(skill.context.contains("结合完整上下文"))
+        XCTAssertEqual(skill.terms, [
+            .init(preferred: "Qwen-Image-Edit", spokenForms: ["千问 Image Edit"]),
+            .init(preferred: "Qwen", spokenForms: ["千问"]),
+            .init(preferred: "token", spokenForms: ["偷啃", "托肯"])
+        ])
+        XCTAssertTrue(skill.promptContext.contains("token <- 偷啃 / 托肯"))
     }
 
     func testParsesCategorizedVocabularySubheadings() throws {

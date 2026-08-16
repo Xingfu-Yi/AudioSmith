@@ -80,19 +80,21 @@ name: aigc
 description: Improve mixed Chinese and English AIGC dictation.
 ---
 
-# AIGC Vocabulary and Transcription
+# AIGC Pronunciation Dictionary
 
-## Vocabulary
+## Pronunciation dictionary
 
-- `Diffusion Models`: `diffusion models`
-- `epsilon`: `艾普西龙`
+| Canonical spelling | Spoken form or common ASR error |
+|---|---|
+| Qwen-Image-Edit | 千问 Image Edit |
+| token | 偷啃 |
 ```
 
 User Skills live at `~/Library/Application Support/AudioSmith/Skills/<name>/SKILL.md`. On the first launch of this version, Audio Smith copies one editable `aigc/SKILL.md` starter into that directory. The user copy overrides the bundled fallback, and edits are discovered before the next dictation without restarting the app. System Settings shows discovered Skills; the menu-bar menu stays limited to shortcut selection, System Settings, and Quit.
 
-The single starter Skill is **AIGC Vocabulary and Transcription**. It contains ASR-oriented vocabulary for LLMs, diffusion architectures, image/video generation, training, inference, and commonly misheard framework or model names. Users can keep it simple, edit it directly, or add their own Skill directories later.
+The single starter Skill is **AIGC Pronunciation Dictionary**. Its compact tables map canonical spellings to spoken forms or common ASR errors for LLMs, diffusion architectures, image/video generation, training, inference, and model names. Users can edit the tables directly or add their own Skill directories later.
 
-Professional mode parses bounded `Dictation context` and `Vocabulary`, then captures all selected Skills in one immutable request snapshot. The snapshot never enters ASR; it is supplied only to the single whole-transcript 1.7B pass after release. At most 300 unique terms and 8,000 prompt characters are active. Fast mode ignores Skills while preserving the user's checkboxes.
+Professional mode parses bounded guidance and pronunciation tables, then captures all selected Skills in one immutable request snapshot. The snapshot never enters ASR; it is supplied only to the single whole-transcript 1.7B pass after release. Pronunciations are contextual hints rather than unconditional replacements. At most 300 unique terms and 8,000 prompt characters are active. Fast mode ignores Skills while preserving the user's checkboxes.
 
 Skills are terminology data, not executable plugins. Audio Smith never runs code, tools, scripts, or linked resources referenced by a Skill. See the [complete Skill specification](docs/SKILLS.md) and the [copyable examples](Examples/Skills).
 

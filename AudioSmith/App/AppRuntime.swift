@@ -433,10 +433,10 @@ final class AppRuntime {
         activeRequest = nil
         refinementTask = nil
         pendingASRText = nil
-        let replacements = request.refinementMode == .professional
-            ? request.skill.deterministicReplacements
-            : [:]
-        let text = TextCleaner.clean(rawText, replacements: replacements)
+        // Skill pronunciation rows are contextual hints for the professional
+        // refiner, never unconditional string replacements. A spoken form such
+        // as "unit" may legitimately be an ordinary English word.
+        let text = TextCleaner.clean(rawText)
         let target = targetApplication
         targetApplication = nil
 

@@ -7,7 +7,7 @@ struct DomainSkill: Equatable, Identifiable, Sendable {
 
     struct Term: Equatable, Sendable {
         let preferred: String
-        var aliases: [String] = []
+        var spokenForms: [String] = []
     }
 
     let id: String
@@ -28,23 +28,13 @@ struct DomainSkill: Equatable, Identifiable, Sendable {
         guard id != Self.general.id else { return "" }
         var lines = [context.trimmingCharacters(in: .whitespacesAndNewlines)]
         if !terms.isEmpty {
-            lines.append("Transcribe verbatim. Prefer these exact domain terms and spellings when acoustically appropriate:")
+            lines.append("Pronunciation hints (canonical spelling <- spoken form or likely ASR error). Apply a hint only when the full transcript makes it acoustically and contextually plausible; never inject a listed term:")
             lines.append(terms.prefix(Self.combinedTermLimit).map { term in
-                let aliases = term.aliases.isEmpty ? "" : " (may sound like: \(term.aliases.joined(separator: ", ")))"
-                return "- \(term.preferred)\(aliases)"
+                let forms = term.spokenForms.isEmpty ? "" : " <- \(term.spokenForms.joined(separator: " / "))"
+                return "- \(term.preferred)\(forms)"
             }.joined(separator: "\n"))
         }
         return String(lines.filter { !$0.isEmpty }.joined(separator: "\n").prefix(Self.promptCharacterLimit))
-    }
-
-    var deterministicReplacements: [String: String] {
-        var result: [String: String] = [:]
-        for term in terms.prefix(Self.combinedTermLimit) {
-            for alias in term.aliases where !alias.isEmpty && alias.caseInsensitiveCompare(term.preferred) != .orderedSame {
-                result[alias] = term.preferred
-            }
-        }
-        return result
     }
 
     /// Creates the immutable, bounded snapshot used for one dictation. Skills
@@ -89,6 +79,8 @@ struct DomainSkill: Equatable, Identifiable, Sendable {
 enum SkillDocumentParser {
     private static let identifierPattern = #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#
     private static let vocabularyHeadings: Set<String> = [
+        "pronunciation dictionary", "pronunciations", "terms and pronunciations",
+        "专有名词与读法", "术语与读法", "发音词典",
         "vocabulary", "preferred vocabulary", "preferred terms", "词汇", "术语"
     ]
 
@@ -210,16 +202,76 @@ enum SkillDocumentParser {
     private static func parseTerms(_ lines: [String]) throws -> [DomainSkill.Term] {
         var terms: [DomainSkill.Term] = []
 
-        for line in lines where line.trimmingCharacters(in: .whitespaces).hasPrefix("- ") {
-            let components = line.split(separator: "`", omittingEmptySubsequences: false)
-            let values = stride(from: 1, to: components.count, by: 2)
-                .map { String(components[$0]).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            guard let preferred = values.first else { continue }
-            terms.append(.init(preferred: preferred, aliases: Array(values.dropFirst())))
+        for line in lines {
+            guard let term = parseTerm(line) else { continue }
+            terms.append(term)
             if terms.count > 200 { throw SkillValidationError.tooManyTerms }
         }
         return terms
+    }
+
+    private static func parseTerm(_ line: String) -> DomainSkill.Term? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") {
+            return parseTableTerm(trimmed)
+        }
+        guard trimmed.hasPrefix("- ") else { return nil }
+
+        let components = trimmed.split(separator: "`", omittingEmptySubsequences: false)
+        let quotedValues = stride(from: 1, to: components.count, by: 2)
+            .map { String(components[$0]).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if let preferred = quotedValues.first {
+            return .init(preferred: preferred, spokenForms: Array(quotedValues.dropFirst()))
+        }
+
+        let content = String(trimmed.dropFirst(2))
+        guard let separator = content.firstIndex(of: ":") else { return nil }
+        let preferred = cleanCell(String(content[..<separator]))
+        guard !preferred.isEmpty else { return nil }
+        let forms = splitSpokenForms(String(content[content.index(after: separator)...]))
+        return .init(preferred: preferred, spokenForms: forms)
+    }
+
+    private static func parseTableTerm(_ line: String) -> DomainSkill.Term? {
+        let cells = line
+            .trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map { cleanCell(String($0)) }
+        guard cells.count >= 2 else { return nil }
+
+        let preferred = cells[0]
+        let normalizedHeader = preferred.lowercased()
+        let headerLabels: Set<String> = [
+            "canonical", "canonical spelling", "preferred spelling", "term",
+            "规范写法", "标准写法", "专有名词", "术语"
+        ]
+        guard !preferred.isEmpty,
+              !headerLabels.contains(normalizedHeader),
+              !isTableSeparator(preferred) else { return nil }
+
+        return .init(preferred: preferred, spokenForms: splitSpokenForms(cells[1]))
+    }
+
+    private static func cleanCell(_ value: String) -> String {
+        var cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.count >= 2, cleaned.hasPrefix("`"), cleaned.hasSuffix("`") {
+            cleaned = String(cleaned.dropFirst().dropLast())
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func splitSpokenForms(_ value: String) -> [String] {
+        value.split { character in
+            character == "," || character == "，" || character == ";" || character == "；"
+        }
+        .map { cleanCell(String($0)) }
+        .filter { !$0.isEmpty }
+    }
+
+    private static func isTableSeparator(_ value: String) -> Bool {
+        let compact = value.filter { !$0.isWhitespace && $0 != ":" }
+        return !compact.isEmpty && compact.allSatisfy { $0 == "-" }
     }
 }
 
@@ -245,9 +297,9 @@ enum SkillValidationError: LocalizedError, Equatable {
         case .nameDoesNotMatchFolder(let name, let folder):
             "Skill name（\(name)）必须与目录名（\(folder)）一致。"
         case .missingDictationContent:
-            "Skill 至少需要 Dictation context 或 Vocabulary 章节。"
+            "Skill 至少需要听写上下文或专有名词读法表。"
         case .tooManyTerms:
-            "单个 Skill 最多包含 200 个术语。"
+            "单个 Skill 最多包含 200 个专有名词读法条目。"
         }
     }
 }

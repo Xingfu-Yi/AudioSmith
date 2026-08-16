@@ -80,19 +80,21 @@ name: aigc
 description: Improve mixed Chinese and English AIGC dictation.
 ---
 
-# AIGC 词汇与转写
+# AIGC 专有名词读法
 
-## Vocabulary
+## 专有名词与读法
 
-- `Diffusion Models`: `diffusion models`
-- `epsilon`: `艾普西龙`
+| 规范写法 | 读法或常见误识别 |
+|---|---|
+| Qwen-Image-Edit | 千问 Image Edit |
+| token | 偷啃 |
 ```
 
 用户 Skills 固定放在 `~/Library/Application Support/AudioSmith/Skills/<name>/SKILL.md`。本版本首次启动时会自动把一个可编辑的 `aigc/SKILL.md` 模板复制进去；用户副本优先于应用内置后备版本，保存修改后下一次听写自动生效，不需要重启应用。系统设置负责展示 Skills，菜单栏只保留快捷键、系统设置和退出三行。
 
-初始内容只保留一个 **AIGC 词汇与转写** Skill，覆盖大语言模型、扩散架构、图像/视频生成、训练、推理，以及容易听错的框架和模型名称。用户可以直接编辑它；以后确有需要时仍可自行增加其他 Skill 目录。
+初始内容只保留一个 **AIGC 专有名词读法** Skill，用紧凑表格记录大语言模型、扩散架构、图像/视频生成、训练与推理术语的规范拼写、读法和常见误识别。用户可以直接编辑表格；以后确有需要时仍可自行增加其他 Skill 目录。
 
-专业模式会解析限额内的 `Dictation context` 与 `Vocabulary`，并在每次请求开始时建立不可变组合快照。它不会进入 ASR，只在松开后进入唯一一次 1.7B 整段精修；单次最多启用 300 个去重术语和 8,000 个 prompt 字符。极速模式忽略 Skills，但保留用户的勾选状态。
+专业模式会解析限额内的使用说明和读法表格，并在每次请求开始时建立不可变组合快照。它不会进入 ASR，只在松开后进入唯一一次 1.7B 整段精修；读法只作为结合完整上下文判断的提示，不做无条件全局替换。单次最多启用 300 个去重术语和 8,000 个 prompt 字符。极速模式忽略 Skills，但保留用户的勾选状态。
 
 Skills 是术语与上下文数据，不是可执行插件。Audio Smith 不会运行其中提到的代码、工具、脚本或链接资源。完整说明见 [Skill 规范](docs/SKILLS.md)和[可复制示例](Examples/Skills)。
 

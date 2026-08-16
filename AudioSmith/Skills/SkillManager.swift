@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 @MainActor
@@ -16,6 +17,8 @@ final class SkillManager: ObservableObject {
     private static let activeKey = "activeSkillID"
     private static let starterSkillID = "aigc"
     private static let starterSeedKey = "didSeedEditableAIGCSkillV1"
+    private static let pronunciationMigrationKey = "didMigrateAIGCPronunciationTableV2"
+    private static let legacyStarterSHA256 = "463e57feb51a10db369852cc844ed9736232f5508f62b25ef64bc7c7e4471b54"
     private let fileManager = FileManager.default
 
     private init() {
@@ -28,6 +31,7 @@ final class SkillManager: ObservableObject {
             selectedSkillIDs = []
         }
         seedEditableAIGCSkillIfNeeded()
+        migrateUnmodifiedStarterToPronunciationTableIfNeeded()
         reload()
     }
 
@@ -105,6 +109,34 @@ final class SkillManager: ObservableObject {
     private func finishStarterSeed(defaults: UserDefaults) {
         selectedSkillIDs.insert(Self.starterSkillID)
         defaults.set(true, forKey: Self.starterSeedKey)
+    }
+
+    /// Upgrade only the exact previous bundled starter. Any user edit changes
+    /// the digest and is therefore preserved verbatim.
+    private func migrateUnmodifiedStarterToPronunciationTableIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.pronunciationMigrationKey) else { return }
+
+        let destination = Self.userSkillsDirectory
+            .appendingPathComponent(Self.starterSkillID, isDirectory: true)
+            .appendingPathComponent("SKILL.md")
+        guard let source = Bundle.main.resourceURL?
+            .appendingPathComponent("Skills/\(Self.starterSkillID)/SKILL.md"),
+              fileManager.fileExists(atPath: source.path),
+              fileManager.fileExists(atPath: destination.path) else { return }
+
+        do {
+            let existing = try Data(contentsOf: destination)
+            let digest = SHA256.hash(data: existing).map { String(format: "%02x", $0) }.joined()
+            if digest == Self.legacyStarterSHA256 {
+                let replacement = try Data(contentsOf: source)
+                try replacement.write(to: destination, options: .atomic)
+            }
+            defaults.set(true, forKey: Self.pronunciationMigrationKey)
+        } catch {
+            // Retry next launch. Never replace a file unless its exact legacy
+            // digest was verified and the atomic write succeeds.
+        }
     }
 
     func revealUserSkillsDirectory() {

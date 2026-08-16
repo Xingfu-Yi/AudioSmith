@@ -9,13 +9,15 @@ description: Example Audio Smith skill for endocrinology terms in mixed Chinese 
 
 The speaker is discussing endocrinology in mixed Chinese and English. Preserve drug names, biomarkers, units, abbreviations, and capitalization exactly. Do not expand or reinterpret the speaker's words.
 
-## Vocabulary
+## 专有名词与读法
 
-- `HbA1c`: `H B A one C`, `糖化血红蛋白`
-- `GLP-1`: `G L P one`, `GLP 一`
-- `metformin`: `Met Formin`
-- `semaglutide`: `Sema glutide`
-- `mmol/L`: `millimoles per liter`
+| 规范写法 | 读法或常见误识别 |
+|---|---|
+| HbA1c | H B A one C；糖化血红蛋白 |
+| GLP-1 | G L P one；GLP 一 |
+| metformin | Met Formin |
+| semaglutide | Sema glutide |
+| mmol/L | millimoles per liter |
 
 ## Notes
 
