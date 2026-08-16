@@ -15,11 +15,18 @@ final class OverlayPanelController {
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // NSWindow shadows are calculated from the rectangular window frame,
+        // not from the SwiftUI capsule. Keeping this disabled prevents a gray
+        // rectangle from appearing around the otherwise transparent overlay.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.contentView = NSHostingView(rootView: OverlayView(state: state))
+        let hostingView = NSHostingView(rootView: OverlayView(state: state))
+        hostingView.wantsLayer = true
+        hostingView.layer?.isOpaque = false
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        panel.contentView = hostingView
         panel.alphaValue = 0
     }
 
@@ -84,8 +91,7 @@ private struct OverlayView: View {
         .padding(.vertical, 10)
         .background {
             Capsule()
-                .fill(Color(red: 0.075, green: 0.082, blue: 0.105).opacity(0.94))
-                .background(.ultraThinMaterial, in: Capsule())
+                .fill(Color(red: 0.055, green: 0.061, blue: 0.079))
         }
         .overlay {
             Capsule()
@@ -98,7 +104,7 @@ private struct OverlayView: View {
                     lineWidth: 0.8
                 )
         }
-        .shadow(color: .black.opacity(0.34), radius: 16, y: 7)
+        .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
         .padding(6)
     }
 

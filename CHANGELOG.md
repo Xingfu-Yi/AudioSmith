@@ -11,6 +11,7 @@ All notable changes to Audio Smith will be documented here. The project follows 
 - Reduced the default rolling refinement window to 16 seconds with a 4-second overlap and 12-second stride to lower release-to-paste latency.
 - Made requests up to 16 seconds use one final pass, reduced extremely short input padding to Qwen3-ASR's 0.5-second minimum, lowered the short decode token floor, and relaxed the voice gate for brief commands.
 - Replaced the finalizing text in the recording overlay with a custom high-contrast indeterminate spinner that remains visible on the dark capsule across macOS appearances.
+- Removed the rectangular AppKit window shadow and translucent material backing from the recording overlay so only the solid capsule is visible.
 
 ### Added
 
