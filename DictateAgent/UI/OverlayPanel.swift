@@ -68,12 +68,7 @@ private struct OverlayView: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.72))
             } else if state.phase == .finalizing {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-                    .tint(.white.opacity(0.88))
-                    .frame(width: 18, height: 18)
-                    .accessibilityLabel("正在处理")
+                FinalizingSpinner()
             }
 
             if state.phase == .recording {
@@ -110,6 +105,40 @@ private struct OverlayView: View {
     private var formattedDuration: String {
         let seconds = max(0, Int(state.recordingSeconds.rounded(.down)))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct FinalizingSpinner: View {
+    @State private var isRotating = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.12), lineWidth: 2.2)
+
+            Circle()
+                .trim(from: 0.08, to: 0.76)
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            .white.opacity(0.98),
+                            Color(red: 0.40, green: 0.82, blue: 1),
+                            Color(red: 0.58, green: 0.50, blue: 1),
+                            .white.opacity(0.18),
+                        ],
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                )
+                .rotationEffect(.degrees(isRotating ? 360 : 0))
+        }
+        .frame(width: 17, height: 17)
+        .accessibilityLabel("正在处理")
+        .onAppear {
+            withAnimation(.linear(duration: 0.82).repeatForever(autoreverses: false)) {
+                isRotating = true
+            }
+        }
     }
 }
 
