@@ -62,8 +62,8 @@ DICTATE_AGENT_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
 ## How It Works
 
 1. Pressing the selected push-to-talk key snapshots the foreground app and all selected Skills, then starts 16kHz mono capture. The overlay shows only a waveform and elapsed time, so provisional text cannot distract the speaker.
-2. Qwen keeps its native approximately eight-second encoder blocks. Audio Smith decodes a 32-second rolling refinement window in the background, with a derived 25% overlap: 8 seconds of overlap and a 24-second stride. Only the waveform is shown.
-3. Text older than the active overlap is committed internally. Releasing the key decodes only the final tail window; a low-confidence seam falls back to one safe whole-utterance pass.
+2. Qwen keeps its native approximately eight-second encoder blocks. Audio Smith decodes a 16-second rolling refinement window in the background, with a derived 25% overlap: 4 seconds of overlap and a 12-second stride. Only the waveform is shown.
+3. Requests up to 16 seconds run one whole-request final pass. Shorter-than-eight-second inputs receive trailing silence only at the model boundary; their real duration is unchanged. Longer requests decode only the final overlapping tail when the key is released, while a low-confidence seam falls back to one safe whole-utterance pass.
 4. Deterministic terminology and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
 
 `Esc` cancels a recording. The default is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. Audio and encoder state are bounded so a longer session does not intentionally accumulate an unbounded history. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, windowing, and memory gates.

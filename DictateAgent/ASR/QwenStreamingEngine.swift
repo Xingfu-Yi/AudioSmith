@@ -19,12 +19,12 @@ struct LongContextTranscription: Sendable {
 
 /// The model's native encoder block and the app-level refinement window are the
 /// only independent timing parameters. Overlap is always 25% of the refinement
-/// window, so a 32-second window advances by 24 seconds.
+/// window, so a 16-second window advances by 12 seconds.
 struct RollingInferenceConfiguration: Equatable, Sendable {
     static let overlapFraction = 0.25
     static let standard = RollingInferenceConfiguration(
         baseEncoderWindowSeconds: 8,
-        refinementWindowSeconds: 32
+        refinementWindowSeconds: 16
     )
 
     let baseEncoderWindowSeconds: Double
@@ -43,6 +43,43 @@ struct RollingInferenceConfiguration: Equatable, Sendable {
 
     var strideSeconds: Double {
         refinementWindowSeconds - overlapSeconds
+    }
+}
+
+struct RollingFinalWindow: Equatable, Sendable {
+    let startSample: Int
+    let endSample: Int
+}
+
+enum RollingWindowPlanner {
+    /// A checkpoint is intentionally delayed until audio extends beyond its
+    /// right edge. This keeps requests up to and including one refinement
+    /// window on the single-pass finalization path.
+    static func shouldDecodeCheckpoint(totalSamples: Int, checkpointEndSample: Int) -> Bool {
+        totalSamples > checkpointEndSample
+    }
+
+    static func finalWindow(
+        totalSamples: Int,
+        lastCheckpointEndSample: Int?,
+        overlapSamples: Int
+    ) -> RollingFinalWindow? {
+        guard totalSamples > 0 else { return nil }
+        guard let lastCheckpointEndSample else {
+            return .init(startSample: 0, endSample: totalSamples)
+        }
+        guard totalSamples > lastCheckpointEndSample else { return nil }
+        return .init(
+            startSample: max(0, lastCheckpointEndSample - overlapSamples),
+            endSample: totalSamples
+        )
+    }
+}
+
+enum ASRAudioPadding {
+    static func trailingSilence(_ samples: [Float], minimumSampleCount: Int) -> [Float] {
+        guard samples.count < minimumSampleCount else { return samples }
+        return samples + Array(repeating: 0, count: minimumSampleCount - samples.count)
     }
 }
 
@@ -184,7 +221,7 @@ private extension Character {
 }
 
 /// Owns Qwen's waveform-only rolling inference path. The audio tower still uses
-/// its native ~8-second blocks internally. The app decodes a 32-second window,
+/// its native ~8-second blocks internally. The app decodes a 16-second window,
 /// advances it by 75%, and retains the 25% overlap for deterministic stitching.
 @MainActor
 final class QwenStreamingEngine {
@@ -207,7 +244,7 @@ final class QwenStreamingEngine {
                 temperature: 0,
                 context: "",
                 language: nil,
-                chunkDuration: 32,
+                chunkDuration: 16,
                 minChunkDuration: 0.5
             )
             Memory.clearCache()
@@ -357,7 +394,10 @@ private final class RollingInferenceSession: @unchecked Sendable {
         buffer.append(contentsOf: samples)
         totalSamples += samples.count
 
-        while totalSamples >= nextCheckpointEndSample {
+        while RollingWindowPlanner.shouldDecodeCheckpoint(
+            totalSamples: totalSamples,
+            checkpointEndSample: nextCheckpointEndSample
+        ) {
             let start = nextCheckpointEndSample - refinementWindowSamples
             guard let audio = self.samples(from: start, to: nextCheckpointEndSample) else { break }
             decodedWindows.append(decode(
@@ -375,19 +415,29 @@ private final class RollingInferenceSession: @unchecked Sendable {
         guard active, totalSamples > 0 else { return nil }
         active = false
 
-        let lastCheckpointEnd = decodedWindows.last?.endSample ?? 0
-        if totalSamples > lastCheckpointEnd {
-            let finalStart = decodedWindows.last.map {
-                max(0, $0.endSample - overlapSamples)
-            } ?? 0
-            guard let audio = samples(from: finalStart, to: totalSamples), !audio.isEmpty else {
+        if let finalWindow = RollingWindowPlanner.finalWindow(
+            totalSamples: totalSamples,
+            lastCheckpointEndSample: decodedWindows.last?.endSample,
+            overlapSamples: overlapSamples
+        ) {
+            guard let audio = samples(
+                from: finalWindow.startSample,
+                to: finalWindow.endSample
+            ), !audio.isEmpty else {
                 reset()
                 return nil
             }
-            decodedWindows.append(decode(
+            let minimumSampleCount = Int(
+                (configuration.baseEncoderWindowSeconds * Double(sampleRate)).rounded()
+            )
+            let inferenceAudio = ASRAudioPadding.trailingSilence(
                 audio,
-                startSample: finalStart,
-                endSample: totalSamples,
+                minimumSampleCount: minimumSampleCount
+            )
+            decodedWindows.append(decode(
+                inferenceAudio,
+                startSample: finalWindow.startSample,
+                endSample: finalWindow.endSample,
                 isFinal: true
             ))
         }

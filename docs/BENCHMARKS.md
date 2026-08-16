@@ -26,7 +26,8 @@ The two rows use different processes and workloads. Their memory values must not
 
 - Capture UI: waveform and elapsed time only; no provisional transcript
 - Base encoder window: Qwen's native approximately eight-second blocks
-- Refinement window: 32 seconds with a derived 25% overlap (8-second overlap, 24-second stride)
+- Refinement window: 16 seconds with a derived 25% overlap (4-second overlap, 12-second stride)
+- Short-request policy: requests up to 16 seconds receive one final pass; final model inputs shorter than 8 seconds receive trailing-silence padding
 - During capture: serial background checkpoints over the rolling window; the UI remains waveform-only
 - Release-time transcription: only the final overlapping tail window, unless a low-confidence seam requires the safe full-pass fallback
 - Combined Skill snapshot: at most 8,000 prompt characters and 300 unique preferred terms

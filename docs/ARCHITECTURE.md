@@ -11,7 +11,7 @@ flowchart LR
     Snapshot --> Audio["AVAudioEngine 16kHz mono Float32"]
     Audio --> Rolling["Bounded PCM rolling buffer"]
     Audio --> Panel["Waveform-only non-activating NSPanel"]
-    Rolling --> Checkpoint["32s greedy checkpoint"]
+    Rolling --> Checkpoint["16s greedy checkpoint"]
     Snapshot --> Checkpoint
     Checkpoint --> Ledger["Committed text + 25% overlap"]
     KeyRelease["Selected modifier release"] --> Tail["Final overlapping-tail decode"]
@@ -55,9 +55,11 @@ If F1–F12 participates while Fn is held, or any normal key participates while 
 
 ## Audio and rolling long-context inference
 
-AVAudioEngine input is converted to 16kHz, one-channel Float32 samples before entering the inference layer. The two independent timing parameters are the model's native approximately 8-second encoder window and Audio Smith's 32-second refinement window. Overlap is always derived as 25% of the refinement window, so the default stride is 24 seconds. Choosing a 16-second refinement window would derive a 4-second overlap and a 12-second stride without introducing a third user-facing timing parameter.
+AVAudioEngine input is converted to 16kHz, one-channel Float32 samples before entering the inference layer. The two independent timing parameters are the model's native approximately 8-second encoder window and Audio Smith's 16-second refinement window. Overlap is always derived as 25% of the refinement window, so the default overlap is 4 seconds and the stride is 12 seconds.
 
-During capture, raw PCM enters a bounded rolling buffer. At 32 seconds the app performs the first greedy checkpoint; subsequent checkpoints cover `[24, 56]`, `[48, 80]`, and so on. Each call uses the pinned MLXAudio Swift public Qwen generation API, whose audio tower handles its native encoder blocks internally. MLX passes are serialized on a dedicated queue, while the realtime audio callback only appends samples to that queue. The overlay stays waveform-only, so internal checkpoint corrections cannot cause visible text jitter.
+During capture, raw PCM enters a bounded rolling buffer. Audio that ends at or before 16 seconds is decoded exactly once during finalization. Once capture extends beyond 16 seconds, the app performs the first greedy checkpoint; subsequent full checkpoints cover `[12, 28]`, `[24, 40]`, and so on. Each call uses the pinned MLXAudio Swift public Qwen generation API, whose audio tower handles its native encoder blocks internally. MLX passes are serialized on a dedicated queue, while the realtime audio callback only appends samples to that queue. The overlay stays waveform-only, so internal checkpoint corrections cannot cause visible text jitter.
+
+The model input for a final request or tail shorter than the native eight-second encoder block is padded with trailing zero-valued samples up to eight seconds. Window metadata, performance audio duration, overlap boundaries, and pasted content continue to use the real unpadded duration. Empty and silent requests are rejected before inference.
 
 Adjacent hypotheses are combined with a lexical longest-suffix/longest-prefix seam that ignores case, whitespace, and punctuation while retaining the newer wording inside the overlap. On shortcut release, Audio Smith decodes only the unfinished tail beginning at the previous checkpoint's overlap. If the seam has no reliable two-unit anchor, it refuses to guess and runs one safe whole-utterance pass instead. This fallback protects transcript integrity but has higher release latency.
 
