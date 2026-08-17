@@ -80,8 +80,8 @@ targets:
         EXECUTABLE_NAME: AudioSmith
         PRODUCT_MODULE_NAME: AudioSmith
         APP_DISPLAY_NAME: Audio Smith
-        MARKETING_VERSION: 0.1.3
-        CURRENT_PROJECT_VERSION: 4
+        MARKETING_VERSION: 0.1.4
+        CURRENT_PROJECT_VERSION: 5
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_STYLE: Automatic
         ENABLE_APP_SANDBOX: false

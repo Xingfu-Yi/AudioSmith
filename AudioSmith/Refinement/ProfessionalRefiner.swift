@@ -6,7 +6,6 @@ import Tokenizers
 
 struct RefinementRequest: Sendable {
     let transcript: String
-    let skill: DomainSkill
 }
 
 enum ProfessionalRefinerError: LocalizedError {
@@ -66,7 +65,6 @@ actor ProfessionalRefiner {
         let rawTokenCount = tokenizer.encode(text: raw, addSpecialTokens: false).count
         let prompt = try makePrompt(
             transcript: raw,
-            skillContext: request.skill.promptContext,
             tokenizer: tokenizer
         )
         let budget = ProfessionalRefinementBudget(rawTokenCount: rawTokenCount)
@@ -102,26 +100,13 @@ actor ProfessionalRefiner {
 
     private func makePrompt(
         transcript: String,
-        skillContext: String,
         tokenizer: any MLXLMCommon.Tokenizer
     ) throws -> String {
-        var context = skillContext
-        var prompt = RefinementPrompt.userPrompt(transcript: transcript, skillContext: context)
-        var tokenCount = tokenizer.encode(
+        let prompt = RefinementPrompt.userPrompt(transcript: transcript)
+        let tokenCount = tokenizer.encode(
             text: RefinementPrompt.systemInstructions + prompt,
             addSpecialTokens: false
         ).count
-
-        // Skills are optional. Preserve the complete transcript and trim domain
-        // context first if the combined request approaches the context budget.
-        while tokenCount > ProfessionalRefinementBudget.maximumInputTokens, !context.isEmpty {
-            context = String(context.prefix(max(0, context.count * 3 / 4)))
-            prompt = RefinementPrompt.userPrompt(transcript: transcript, skillContext: context)
-            tokenCount = tokenizer.encode(
-                text: RefinementPrompt.systemInstructions + prompt,
-                addSpecialTokens: false
-            ).count
-        }
         guard tokenCount <= ProfessionalRefinementBudget.maximumInputTokens else {
             throw ProfessionalRefinerError.inputTooLong
         }
@@ -172,12 +157,20 @@ actor ProfessionalRefiner {
 enum RefinementPrompt {
     static let systemInstructions = "在忠实原意的基础上润色听写文本，只输出润色后的完整文本。"
 
-    static func userPrompt(transcript: String, skillContext: String) -> String {
-        let context = skillContext.trimmingCharacters(in: .whitespacesAndNewlines)
-        if context.isEmpty {
-            return "听写文本：\n\(transcript)"
-        }
-        return "术语参考：\n\(context)\n\n听写文本：\n\(transcript)"
+    static func userPrompt(transcript: String) -> String {
+        "听写文本：\n\(transcript)"
+    }
+}
+
+enum QwenThinkingCompatibility {
+    static let noThinkingPrefix = "<think>\n\n</think>\n\n"
+
+    static func shouldInjectNoThinkingPrefix(
+        templateSupportsThinkingControl: Bool,
+        additionalContext: [String: any Sendable]?
+    ) -> Bool {
+        guard !templateSupportsThinkingControl else { return false }
+        return additionalContext?["enable_thinking"] as? Bool == false
     }
 }
 
@@ -237,15 +230,36 @@ private struct RefinementUncheckedSendable<Value>: @unchecked Sendable {
 private struct LocalTokenizerLoader: MLXLMCommon.TokenizerLoader {
     func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
         let upstream = try await Tokenizers.AutoTokenizer.from(modelFolder: directory)
-        return LocalTokenizerBridge(upstream)
+        let supportsThinkingControl = Self.templateSupportsThinkingControl(in: directory)
+        return LocalTokenizerBridge(
+            upstream,
+            templateSupportsThinkingControl: supportsThinkingControl
+        )
+    }
+
+    private static func templateSupportsThinkingControl(in directory: URL) -> Bool {
+        let url = directory.appendingPathComponent("tokenizer_config.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let template = object["chat_template"] as? String else {
+            // This loader is pinned to Qwen3. Treat a missing flag as the
+            // legacy template that needs the explicit no-thinking prefix.
+            return false
+        }
+        return template.contains("enable_thinking")
     }
 }
 
 private struct LocalTokenizerBridge: MLXLMCommon.Tokenizer {
     private let upstream: any Tokenizers.Tokenizer
+    private let templateSupportsThinkingControl: Bool
 
-    init(_ upstream: any Tokenizers.Tokenizer) {
+    init(
+        _ upstream: any Tokenizers.Tokenizer,
+        templateSupportsThinkingControl: Bool
+    ) {
         self.upstream = upstream
+        self.templateSupportsThinkingControl = templateSupportsThinkingControl
     }
 
     func encode(text: String, addSpecialTokens: Bool) -> [Int] {
@@ -274,11 +288,21 @@ private struct LocalTokenizerBridge: MLXLMCommon.Tokenizer {
         additionalContext: [String: any Sendable]?
     ) throws -> [Int] {
         do {
-            return try upstream.applyChatTemplate(
+            var tokens = try upstream.applyChatTemplate(
                 messages: messages,
                 tools: tools,
                 additionalContext: additionalContext
             )
+            if QwenThinkingCompatibility.shouldInjectNoThinkingPrefix(
+                templateSupportsThinkingControl: templateSupportsThinkingControl,
+                additionalContext: additionalContext
+            ) {
+                tokens += upstream.encode(
+                    text: QwenThinkingCompatibility.noThinkingPrefix,
+                    addSpecialTokens: false
+                )
+            }
+            return tokens
         } catch Tokenizers.TokenizerError.missingChatTemplate {
             throw MLXLMCommon.TokenizerError.missingChatTemplate
         }

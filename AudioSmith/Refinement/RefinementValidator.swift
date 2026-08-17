@@ -3,6 +3,7 @@ import Foundation
 enum RefinementValidationFailure: String, Equatable {
     case empty = "候选或原文为空"
     case protocolText = "候选包含模型协议文本"
+    case metaAnalysis = "候选包含模型分析过程"
     case changedNumber = "原文中的数字未被保留"
     case changedURL = "原文中的 URL 被改变"
     case changedEmail = "原文中的邮箱被改变"
@@ -32,6 +33,15 @@ enum RefinementValidator {
         ]
         let lower = candidate.lowercased()
         guard forbidden.allSatisfy({ !lower.contains($0) }) else { return .protocolText }
+
+        let metaAnalysisOpenings = [
+            "好的，我现在需要处理用户的听写文本",
+            "首先，我需要仔细阅读用户提供的术语参考",
+            "接下来，我需要分析听写文本",
+        ]
+        guard metaAnalysisOpenings.allSatisfy({ !candidate.hasPrefix($0) }) else {
+            return .metaAnalysis
+        }
 
         // Protect numbers the speaker actually dictated, but allow a selected
         // Skill to introduce digits as part of a canonical spelling such as

@@ -361,8 +361,7 @@ final class AppRuntime {
             do {
                 logger.notice("Starting the single whole-transcript professional refinement pass")
                 finalText = try await refiner.refine(.init(
-                    transcript: rawText,
-                    skill: request.skill
+                    transcript: rawText
                 ))
             } catch is CancellationError {
                 guard isActive(request.id) else { return }

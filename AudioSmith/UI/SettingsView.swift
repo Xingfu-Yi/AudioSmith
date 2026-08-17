@@ -64,10 +64,10 @@ struct SettingsView: View {
 
             GroupBox("模型与性能") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("专业精修（Qwen3-1.7B + Skills）", isOn: professionalBinding)
+                    Toggle("专业精修（Qwen3-1.7B）", isOn: professionalBinding)
                         .toggleStyle(.switch)
                     Text(preferences.refinementMode == .professional
-                         ? "0.6B ASR 后对完整文本精修一次；准确性更高。"
+                         ? "0.6B ASR 后对完整文本做一次通用润色；当前不注入 Skill 上下文。"
                          : "极速听写仅使用 0.6B ASR；延迟和内存更低。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -112,7 +112,7 @@ struct SettingsView: View {
                 .padding(6)
             }
 
-            GroupBox("术语 Skills") {
+            GroupBox("术语 Skills（实验性）") {
                 VStack(alignment: .leading, spacing: 10) {
                     if skills.skills.filter({ $0.id != DomainSkill.general.id }).isEmpty {
                         Text("尚未找到可选择的 Skill。")
@@ -131,22 +131,18 @@ struct SettingsView: View {
                                         }
                                     }
                                     .toggleStyle(.checkbox)
-                                    .disabled(preferences.refinementMode == .fast)
+                                    .disabled(true)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxHeight: 150)
                     }
-                    Text(preferences.refinementMode == .fast
-                         ? "极速听写不加载 Skills；勾选会保留到下次开启专业精修。"
-                         : (skills.selectedSkillIDs.isEmpty
-                            ? "未选择 Skill：使用通用专业精修。"
-                            : "已选择 \(skills.selectedSkillIDs.count) 个 Skill；上下文和词汇会进入下一次整段精修快照。"))
+                    Text("为避免 1.7B 模型输出分析过程，当前版本暂不将 Skill 正文发送给精修模型；原有选择会保留。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("打开 Skills 文件夹") { skills.revealUserSkillsDirectory() }
-                    Text("Skills 不会进入 ASR；专业模式只在松开快捷键后，将最多 300 个去重术语和限额上下文提交给一次整段精修。")
+                    Text("Skills 不会进入 ASR；这一版也不会进入 1.7B 精修请求。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

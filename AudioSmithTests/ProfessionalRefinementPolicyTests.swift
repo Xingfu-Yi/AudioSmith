@@ -35,13 +35,35 @@ final class ProfessionalRefinementPolicyTests: XCTestCase {
     func testPromptIsCompactAndUsesNoProtocolTags() {
         XCTAssertLessThan(RefinementPrompt.systemInstructions.count, 40)
         let prompt = RefinementPrompt.userPrompt(
-            transcript: "模型使用 RMSNorm 和 AdaLN。",
-            skillContext: "AdaLN <- Adam"
+            transcript: "模型使用 RMSNorm 和 AdaLN。"
         )
         XCTAssertFalse(prompt.contains("<raw_transcript>"))
         XCTAssertFalse(prompt.contains("<dictation_context>"))
-        XCTAssertTrue(prompt.contains("AdaLN <- Adam"))
+        XCTAssertFalse(prompt.contains("术语参考"))
+        XCTAssertFalse(prompt.contains("AdaLN <- Adam"))
         XCTAssertTrue(prompt.contains("模型使用 RMSNorm 和 AdaLN。"))
+    }
+
+    func testLegacyQwenTemplateGetsExplicitNoThinkingPrefix() {
+        XCTAssertTrue(QwenThinkingCompatibility.shouldInjectNoThinkingPrefix(
+            templateSupportsThinkingControl: false,
+            additionalContext: ["enable_thinking": false]
+        ))
+        XCTAssertEqual(
+            QwenThinkingCompatibility.noThinkingPrefix,
+            "<think>\n\n</think>\n\n"
+        )
+    }
+
+    func testModernQwenTemplateDoesNotDuplicateNoThinkingPrefix() {
+        XCTAssertFalse(QwenThinkingCompatibility.shouldInjectNoThinkingPrefix(
+            templateSupportsThinkingControl: true,
+            additionalContext: ["enable_thinking": false]
+        ))
+        XCTAssertFalse(QwenThinkingCompatibility.shouldInjectNoThinkingPrefix(
+            templateSupportsThinkingControl: false,
+            additionalContext: ["enable_thinking": true]
+        ))
     }
 
     func testSanitizerRemovesQwenThinkingAndAnswerWrappers() {

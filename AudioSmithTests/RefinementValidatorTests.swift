@@ -2,6 +2,16 @@ import XCTest
 @testable import AudioSmith
 
 final class RefinementValidatorTests: XCTestCase {
+    func testRejectsLeakedModelAnalysis() {
+        XCTAssertEqual(
+            RefinementValidator.rejectionFailure(
+                candidate: "好的，我现在需要处理用户的听写文本，并按照给定的术语参考进行润色。",
+                original: "可不可以这样啊？"
+            ),
+            .metaAnalysis
+        )
+    }
+
     func testAcceptsFaithfulTerminologyAndPunctuationCorrection() {
         XCTAssertTrue(RefinementValidator.accepts(
             candidate: "Diffusion models 的 epsilon prediction 会影响 SNR、RMSNorm、LayerNorm 和 AdaLN。",
