@@ -14,7 +14,15 @@ struct SettingsView: View {
                     .font(.system(size: 28))
                     .foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Audio Smith").font(.title2.bold())
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Audio Smith").font(.title2.bold())
+                        Text(AppVersion.displayName)
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.quaternary, in: Capsule())
+                    }
                     Text(state.phase == .ready
                          ? "按住 \(hotkeys.selected.displayName) 开始听写"
                          : state.phase.title)

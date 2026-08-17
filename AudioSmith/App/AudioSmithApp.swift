@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+enum AppVersion {
+    static var displayName: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = info["CFBundleVersion"] as? String ?? "0"
+        return "v\(version) (\(build))"
+    }
+}
+
 @main
 struct AudioSmithApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -57,22 +66,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.setContentSize(NSSize(width: 608, height: 720))
             window.isReleasedWhenClosed = false
-            window.collectionBehavior.insert(.moveToActiveSpace)
+            window.hidesOnDeactivate = false
+            window.level = .floating
+            window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.center()
             settingsWindow = window
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
-        settingsWindow?.orderFrontRegardless()
+        bringSettingsToFront()
 
         // MenuBarExtra closes at the end of the current event. Reasserting the
         // ordering on the next run-loop turn prevents that close from returning
         // focus to the previously active browser window.
         DispatchQueue.main.async { [weak self] in
-            NSApp.activate(ignoringOtherApps: true)
-            self?.settingsWindow?.makeKeyAndOrderFront(nil)
+            self?.bringSettingsToFront()
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.bringSettingsToFront()
+        }
+    }
+
+    private func bringSettingsToFront() {
+        guard let settingsWindow else { return }
+        if settingsWindow.isMiniaturized {
+            settingsWindow.deminiaturize(nil)
+        }
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow.level = .floating
+        settingsWindow.orderFrontRegardless()
+        settingsWindow.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -80,7 +103,7 @@ private struct MenuBarView: View {
     @ObservedObject var hotkeys: HotkeySettings
 
     var body: some View {
-        Label("Audio Smith", systemImage: "mic.fill")
+        Label("Audio Smith  \(AppVersion.displayName)", systemImage: "mic.fill")
         Divider()
         Menu("快捷键（\(hotkeys.selected.displayName)）") {
             ForEach(DictationHotkey.allCases) { candidate in
