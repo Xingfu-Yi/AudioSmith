@@ -31,4 +31,31 @@ final class ProfessionalRefinementPolicyTests: XCTestCase {
         XCTAssertEqual(maximum.outputTokens, 8 * 1_024)
         XCTAssertEqual(maximum.timeoutSeconds, 45)
     }
+
+    func testPromptIsCompactAndUsesNoProtocolTags() {
+        XCTAssertLessThan(RefinementPrompt.systemInstructions.count, 40)
+        let prompt = RefinementPrompt.userPrompt(
+            transcript: "模型使用 RMSNorm 和 AdaLN。",
+            skillContext: "AdaLN <- Adam"
+        )
+        XCTAssertFalse(prompt.contains("<raw_transcript>"))
+        XCTAssertFalse(prompt.contains("<dictation_context>"))
+        XCTAssertTrue(prompt.contains("AdaLN <- Adam"))
+        XCTAssertTrue(prompt.contains("模型使用 RMSNorm 和 AdaLN。"))
+    }
+
+    func testSanitizerRemovesQwenThinkingAndAnswerWrappers() {
+        XCTAssertEqual(
+            RefinementOutputSanitizer.sanitize(
+                "<think>不要暴露这些内容</think>\n润色后的文本：模型使用 RMSNorm 和 AdaLN。"
+            ),
+            "模型使用 RMSNorm 和 AdaLN。"
+        )
+        XCTAssertEqual(
+            RefinementOutputSanitizer.sanitize(
+                "<|im_start|>assistant\n```text\n模型使用 RMSNorm 和 AdaLN。\n```<|im_end|>"
+            ),
+            "模型使用 RMSNorm 和 AdaLN。"
+        )
+    }
 }

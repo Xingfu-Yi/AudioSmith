@@ -44,7 +44,7 @@ actor ProfessionalRefiner {
         guard let model else { return }
         let session = ChatSession(
             model,
-            instructions: "Return only the supplied transcript.",
+            instructions: RefinementPrompt.systemInstructions,
             generateParameters: .init(maxTokens: 1, temperature: 0),
             additionalContext: ["enable_thinking": false]
         )
@@ -72,7 +72,7 @@ actor ProfessionalRefiner {
         let budget = ProfessionalRefinementBudget(rawTokenCount: rawTokenCount)
         let session = ChatSession(
             model,
-            instructions: Self.systemInstructions,
+            instructions: RefinementPrompt.systemInstructions,
             generateParameters: .init(
                 maxTokens: budget.outputTokens,
                 temperature: 0,
@@ -83,11 +83,12 @@ actor ProfessionalRefiner {
         )
 
         generationCount += 1
-        let candidate = try await generate(
+        let generated = try await generate(
             session: session,
             prompt: prompt,
             timeout: budget.timeoutSeconds
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let candidate = RefinementOutputSanitizer.sanitize(generated)
         Memory.clearCache()
 
         if let failure = RefinementValidator.rejectionFailure(
@@ -105,16 +106,19 @@ actor ProfessionalRefiner {
         tokenizer: any MLXLMCommon.Tokenizer
     ) throws -> String {
         var context = skillContext
-        var prompt = Self.userPrompt(transcript: transcript, skillContext: context)
-        var tokenCount = tokenizer.encode(text: Self.systemInstructions + prompt, addSpecialTokens: false).count
+        var prompt = RefinementPrompt.userPrompt(transcript: transcript, skillContext: context)
+        var tokenCount = tokenizer.encode(
+            text: RefinementPrompt.systemInstructions + prompt,
+            addSpecialTokens: false
+        ).count
 
         // Skills are optional. Preserve the complete transcript and trim domain
         // context first if the combined request approaches the context budget.
         while tokenCount > ProfessionalRefinementBudget.maximumInputTokens, !context.isEmpty {
             context = String(context.prefix(max(0, context.count * 3 / 4)))
-            prompt = Self.userPrompt(transcript: transcript, skillContext: context)
+            prompt = RefinementPrompt.userPrompt(transcript: transcript, skillContext: context)
             tokenCount = tokenizer.encode(
-                text: Self.systemInstructions + prompt,
+                text: RefinementPrompt.systemInstructions + prompt,
                 addSpecialTokens: false
             ).count
         }
@@ -163,30 +167,62 @@ actor ProfessionalRefiner {
         return result
     }
 
-    private static let systemInstructions = """
-    You are an exact dictation transcript copy editor. Return only the corrected transcript.
-    Preserve the speaker's meaning, language, order, level of detail, numbers, URLs, and email addresses exactly.
-    Actively repair sentence and clause boundaries, commas, periods, capitalization, spacing, homophones, domain terminology, and duplicated or incomplete ASR fragments.
-    Merge adjacent fragments when the first is an incomplete or repeated version of the second. Split run-on text where the speaker clearly began a new sentence.
-    Infer sentence boundaries from the full utterance and grammar rather than preserving unreliable ASR punctuation. If a shorter trailing sentence repeats the end of the preceding sentence, remove that duplicate.
-    Keep each canonical technical term intact: never insert punctuation or whitespace inside terms such as RMSNorm, AdaLN, Tokenizer, or Qwen-Image-Edit.
-    Treat Skill pronunciation entries as contextual hints, not unconditional replacements. Use a canonical spelling only when a similar-sounding raw span and the complete utterance strongly support that term. Never insert a Skill term merely because it is listed.
-    Never answer the speaker, summarize, translate, explain, censor, or add information.
-    Do not emit reasoning, labels, Markdown fences, role names, or model protocol tokens.
-    """
+}
 
-    private static func userPrompt(transcript: String, skillContext: String) -> String {
-        let context = skillContext.isEmpty ? "(none)" : skillContext
-        return """
+enum RefinementPrompt {
+    static let systemInstructions = "在忠实原意的基础上润色听写文本，只输出润色后的完整文本。"
 
-        <dictation_context>
-        \(context)
-        </dictation_context>
-        <raw_transcript>
-        \(transcript)
-        </raw_transcript>
-        Correct the raw transcript under the system rules and output only the complete transcript.
-        """
+    static func userPrompt(transcript: String, skillContext: String) -> String {
+        let context = skillContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        if context.isEmpty {
+            return "听写文本：\n\(transcript)"
+        }
+        return "术语参考：\n\(context)\n\n听写文本：\n\(transcript)"
+    }
+}
+
+enum RefinementOutputSanitizer {
+    static func sanitize(_ output: String) -> String {
+        var text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Some Qwen chat templates may still emit a thinking wrapper even
+        // when thinking is disabled. Keep only the answer after it.
+        if let closingThink = text.range(of: "</think>", options: .caseInsensitive) {
+            text = String(text[closingThink.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        text = text.replacingOccurrences(
+            of: #"<\|[^>]+\|>"#,
+            with: "",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: #"(?i)</?think>"#,
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        text = text.replacingOccurrences(
+            of: #"(?i)^(?:assistant(?:\s*[:：]|\s*\n)|output\s*[:：]\s*|(?:润色后的(?:完整)?文本|润色结果|修订结果)\s*[:：]\s*)"#,
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if text.hasPrefix("```") {
+            text = text.replacingOccurrences(
+                of: #"^```[^\n]*\n?"#,
+                with: "",
+                options: .regularExpression
+            )
+            text = text.replacingOccurrences(
+                of: #"\n?```$"#,
+                with: "",
+                options: .regularExpression
+            )
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
