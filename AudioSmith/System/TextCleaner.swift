@@ -48,6 +48,7 @@ enum TextCleaner {
         text = repairSplitCanonicalTerms(text, canonicalTerms: canonicalTerms)
         text = collapseRepeatedSentences(text)
         text = collapsePrefixRepeatedSentences(text)
+        text = collapseSuffixRepeatedSentences(text)
 
         for (source, target) in replacements.sorted(by: { $0.key.count > $1.key.count }) {
             text = replacingAlias(source, in: text, with: target)
@@ -139,6 +140,41 @@ enum TextCleaner {
             collapsed.append(segment)
         }
         return collapsed.joined()
+    }
+
+    /// Rolling ASR can append a short sentence that repeats the end of the
+    /// preceding complete sentence. Drop only a sufficiently long adjacent
+    /// suffix match so ordinary short emphasis remains untouched.
+    private static func collapseSuffixRepeatedSentences(_ input: String) -> String {
+        let segments = sentenceSegments(input)
+        var collapsed: [String] = []
+        for segment in segments {
+            if let previous = collapsed.last {
+                let previousKey = comparisonKey(previous)
+                let currentKey = comparisonKey(segment)
+                if currentKey.count >= 12,
+                   previousKey.count > currentKey.count,
+                   previousKey.hasSuffix(currentKey) {
+                    continue
+                }
+            }
+            collapsed.append(segment)
+        }
+        return collapsed.joined()
+    }
+
+    private static func sentenceSegments(_ input: String) -> [String] {
+        var segments: [String] = []
+        var current = ""
+        for character in input {
+            current.append(character)
+            if "。！？!?".contains(character) {
+                segments.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { segments.append(current) }
+        return segments
     }
 
     private static func comparisonKey(_ input: String) -> String {

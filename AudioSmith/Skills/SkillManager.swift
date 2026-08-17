@@ -19,8 +19,10 @@ final class SkillManager: ObservableObject {
     private static let starterSeedKey = "didSeedEditableAIGCSkillV1"
     private static let pronunciationMigrationKey = "didMigrateAIGCPronunciationTableV2"
     private static let observedConfusionsMigrationKey = "didMigrateAIGCObservedConfusionsV3"
+    private static let observedNormalizationMigrationKey = "didMigrateAIGCObservedNormalizationV4"
     private static let legacyStarterSHA256 = "463e57feb51a10db369852cc844ed9736232f5508f62b25ef64bc7c7e4471b54"
     private static let pronunciationTableV2SHA256 = "cf98daf004faec36b6b49d1e10300851803399ad7cc61bd0ea6de5af688cd455"
+    private static let observedConfusionsV3SHA256 = "12daefc1c5eebcec4eaa2b0680ef8ab011671cfa99cca7dd4ee8da5f1b507890"
     private let fileManager = FileManager.default
 
     private init() {
@@ -35,6 +37,7 @@ final class SkillManager: ObservableObject {
         seedEditableAIGCSkillIfNeeded()
         migrateUnmodifiedStarterToPronunciationTableIfNeeded()
         migrateUnmodifiedStarterToObservedConfusionsIfNeeded()
+        migrateUnmodifiedStarterToObservedNormalizationIfNeeded()
         reload()
     }
 
@@ -128,6 +131,14 @@ final class SkillManager: ObservableObject {
         migrateUnmodifiedStarterIfNeeded(
             defaultsKey: Self.observedConfusionsMigrationKey,
             expectedSHA256: Self.pronunciationTableV2SHA256
+        )
+    }
+
+    /// Add the next observed pronunciation only to an untouched V3 starter.
+    private func migrateUnmodifiedStarterToObservedNormalizationIfNeeded() {
+        migrateUnmodifiedStarterIfNeeded(
+            defaultsKey: Self.observedNormalizationMigrationKey,
+            expectedSHA256: Self.observedConfusionsV3SHA256
         )
     }
 

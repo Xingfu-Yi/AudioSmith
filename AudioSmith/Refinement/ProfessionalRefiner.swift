@@ -169,6 +169,7 @@ actor ProfessionalRefiner {
     Preserve the speaker's meaning, language, order, level of detail, numbers, URLs, and email addresses exactly.
     Actively repair sentence and clause boundaries, commas, periods, capitalization, spacing, homophones, domain terminology, and duplicated or incomplete ASR fragments.
     Merge adjacent fragments when the first is an incomplete or repeated version of the second. Split run-on text where the speaker clearly began a new sentence.
+    Infer sentence boundaries from the full utterance and grammar rather than preserving unreliable ASR punctuation. If a shorter trailing sentence repeats the end of the preceding sentence, remove that duplicate.
     Keep each canonical technical term intact: never insert punctuation or whitespace inside terms such as RMSNorm, AdaLN, Tokenizer, or Qwen-Image-Edit.
     Treat Skill pronunciation entries as contextual hints, not unconditional replacements. Use a canonical spelling only when a similar-sounding raw span and the complete utterance strongly support that term. Never insert a Skill term merely because it is listed.
     Never answer the speaker, summarize, translate, explain, censor, or add information.

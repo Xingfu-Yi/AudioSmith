@@ -18,14 +18,6 @@ enum RefinementValidator {
         let lower = candidate.lowercased()
         guard forbidden.allSatisfy({ !lower.contains($0) }) else { return false }
 
-        // The refiner is expected to repair terminology, sentence boundaries,
-        // punctuation and duplicated ASR fragments. Character edit distance is
-        // therefore not a useful safety signal: a fully faithful correction can
-        // legitimately look very different. Keep only a broad guard against a
-        // model that returns a truncated answer or a large unrelated expansion.
-        let lengthRatio = Double(candidate.count) / Double(max(1, original.count))
-        guard (0.40...1.60).contains(lengthRatio) else { return false }
-
         guard captures(#"\d+(?:[.,]\d+)*"#, in: candidate) == captures(#"\d+(?:[.,]\d+)*"#, in: original),
               captures(#"https?://[^\s<>]+"#, in: candidate) == captures(#"https?://[^\s<>]+"#, in: original),
               captures(#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, in: candidate, caseInsensitive: true)

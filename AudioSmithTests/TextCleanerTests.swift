@@ -47,6 +47,15 @@ final class TextCleanerTests: XCTestCase {
         )
     }
 
+    func testCollapsesTrailingSentenceThatRepeatsPreviousSuffix() {
+        XCTAssertEqual(
+            TextCleaner.clean(
+                "每个 token 都会经过 tokenizer。模型使用 RMSNorm 和 AdaLN。模型使用 RMSNorm 和 AdaLN。"
+            ),
+            "每个 token 都会经过 tokenizer。模型使用 RMSNorm 和 AdaLN。"
+        )
+    }
+
     func testAppliesLongestReplacementFirst() {
         let result = TextCleaner.clean(
             "Use MLX Audio Swift and M L X.",

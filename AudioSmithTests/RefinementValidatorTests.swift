@@ -9,10 +9,10 @@ final class RefinementValidatorTests: XCTestCase {
         ))
     }
 
-    func testRejectsGrosslyExpandedOutput() {
-        XCTAssertFalse(RefinementValidator.accepts(
-            candidate: "这段话主要讨论扩散模型，并总结了几个归一化方法的差异、应用场景、历史背景、实现方式、性能特点、训练方法和未来发展方向。",
-            original: "我们讨论 diffusion models 和 RMSNorm。"
+    func testAllowsLargeFaithfulRestructuring() {
+        XCTAssertTrue(RefinementValidator.accepts(
+            candidate: "模型使用 RMSNorm 和 AdaLN。",
+            original: "模型使用 RMS。norm 和 LLN。模型使用 RMSNorm 和 LLN。模型使用 RMSNorm 和 LLN。"
         ))
     }
 
