@@ -32,6 +32,23 @@ final class RefinementValidatorTests: XCTestCase {
         ))
     }
 
+    func testAllowsCanonicalTechnicalTermToIntroduceDigits() {
+        XCTAssertTrue(RefinementValidator.accepts(
+            candidate: "我使用 Qwen3-ASR。",
+            original: "我使用千问三 A S R。"
+        ))
+    }
+
+    func testReportsSpecificRejectionReason() {
+        XCTAssertEqual(
+            RefinementValidator.rejectionFailure(
+                candidate: "版本 2.2。",
+                original: "版本 2.1。"
+            ),
+            .changedNumber
+        )
+    }
+
     func testRejectsThinkingAndProtocolText() {
         XCTAssertFalse(RefinementValidator.accepts(
             candidate: "<think>先分析</think>这是原文。",

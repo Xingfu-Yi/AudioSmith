@@ -20,9 +20,11 @@ final class SkillManager: ObservableObject {
     private static let pronunciationMigrationKey = "didMigrateAIGCPronunciationTableV2"
     private static let observedConfusionsMigrationKey = "didMigrateAIGCObservedConfusionsV3"
     private static let observedNormalizationMigrationKey = "didMigrateAIGCObservedNormalizationV4"
+    private static let contextualNormalizationMigrationKey = "didMigrateAIGCContextualNormalizationV5"
     private static let legacyStarterSHA256 = "463e57feb51a10db369852cc844ed9736232f5508f62b25ef64bc7c7e4471b54"
     private static let pronunciationTableV2SHA256 = "cf98daf004faec36b6b49d1e10300851803399ad7cc61bd0ea6de5af688cd455"
     private static let observedConfusionsV3SHA256 = "12daefc1c5eebcec4eaa2b0680ef8ab011671cfa99cca7dd4ee8da5f1b507890"
+    private static let observedNormalizationV4SHA256 = "9dd63d7c41fed0b019d9d8ca0605799e93a6a690900b45af5146f271a6b7ad10"
     private let fileManager = FileManager.default
 
     private init() {
@@ -38,6 +40,7 @@ final class SkillManager: ObservableObject {
         migrateUnmodifiedStarterToPronunciationTableIfNeeded()
         migrateUnmodifiedStarterToObservedConfusionsIfNeeded()
         migrateUnmodifiedStarterToObservedNormalizationIfNeeded()
+        migrateUnmodifiedStarterToContextualNormalizationIfNeeded()
         reload()
     }
 
@@ -139,6 +142,14 @@ final class SkillManager: ObservableObject {
         migrateUnmodifiedStarterIfNeeded(
             defaultsKey: Self.observedNormalizationMigrationKey,
             expectedSHA256: Self.observedConfusionsV3SHA256
+        )
+    }
+
+    /// Add the observed Adam/AdaLN confusion only to an untouched V4 starter.
+    private func migrateUnmodifiedStarterToContextualNormalizationIfNeeded() {
+        migrateUnmodifiedStarterIfNeeded(
+            defaultsKey: Self.contextualNormalizationMigrationKey,
+            expectedSHA256: Self.observedNormalizationV4SHA256
         )
     }
 

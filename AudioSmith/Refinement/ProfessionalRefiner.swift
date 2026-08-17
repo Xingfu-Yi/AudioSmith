@@ -13,14 +13,14 @@ enum ProfessionalRefinerError: LocalizedError {
     case notLoaded
     case inputTooLong
     case timeout
-    case rejectedCandidate
+    case rejectedCandidate(RefinementValidationFailure)
 
     var errorDescription: String? {
         switch self {
         case .notLoaded: "专业精修模型尚未加载。"
         case .inputTooLong: "听写文本超过专业精修的 24K token 输入上限。"
         case .timeout: "专业精修超时。"
-        case .rejectedCandidate: "专业精修结果未通过忠实度校验。"
+        case .rejectedCandidate(let failure): "专业精修结果未通过校验：\(failure.rawValue)。"
         }
     }
 }
@@ -90,12 +90,11 @@ actor ProfessionalRefiner {
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         Memory.clearCache()
 
-        guard RefinementValidator.accepts(
+        if let failure = RefinementValidator.rejectionFailure(
             candidate: candidate,
-            original: raw,
-            skill: request.skill
-        ) else {
-            throw ProfessionalRefinerError.rejectedCandidate
+            original: raw
+        ) {
+            throw ProfessionalRefinerError.rejectedCandidate(failure)
         }
         return candidate
     }

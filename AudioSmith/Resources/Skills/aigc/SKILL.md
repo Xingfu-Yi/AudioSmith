@@ -42,7 +42,7 @@ description: Use canonical spellings, spoken forms, and common ASR confusions to
 | FlashAttention | flash attention |
 | RMSNorm | R M S norm；RMS norm |
 | LayerNorm | layer norm |
-| AdaLN | Ada L N；艾达 L N；At L N；L L N；LLN |
+| AdaLN | Ada L N；艾达 L N；At L N；L L N；LLN；Adam |
 | AdaLN-Zero | Ada L N zero；adaptive layer norm zero |
 | Mixture of Experts | mixture of experts |
 | MoE | M O E |
