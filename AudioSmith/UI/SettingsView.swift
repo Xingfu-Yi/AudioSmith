@@ -64,14 +64,6 @@ struct SettingsView: View {
 
             GroupBox("模型与性能") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("专业精修（Qwen3-1.7B）", isOn: professionalBinding)
-                        .toggleStyle(.switch)
-                    Text(preferences.refinementMode == .professional
-                         ? "0.6B ASR 后对完整文本做一次通用润色；当前不注入 Skill 上下文。"
-                         : "极速听写仅使用 0.6B ASR；延迟和内存更低。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     Picker("下载源", selection: sourceBinding) {
                         ForEach(ModelSourcePreference.allCases) { source in
                             Text(source.displayName).tag(source)
@@ -79,9 +71,10 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Text(preferences.refinementMode == .professional
-                         ? "Qwen3-ASR-0.6B 8-bit + Qwen3-1.7B MLX 4-bit · 纯本地"
-                         : "Qwen3-ASR-0.6B 8-bit · 纯本地")
+                    Text("Qwen3-ASR-1.7B · MLX 8-bit · 纯本地")
+                    Text("单模型直接完成中英混合听写；不会在松开后调用第二个 LLM 改写全文。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     if state.phase == .downloading {
                         ProgressView(value: state.downloadProgress)
                         if let model = state.downloadingModelName {
@@ -131,18 +124,17 @@ struct SettingsView: View {
                                         }
                                     }
                                     .toggleStyle(.checkbox)
-                                    .disabled(true)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxHeight: 150)
                     }
-                    Text("为避免 1.7B 模型输出分析过程，当前版本暂不将 Skill 正文发送给精修模型；原有选择会保留。")
+                    Text("每次按下快捷键前自动重扫；最多把 40 个术语及其读法作为紧凑上下文交给 ASR。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("打开 Skills 文件夹") { skills.revealUserSkillsDirectory() }
-                    Text("Skills 不会进入 ASR；这一版也不会进入 1.7B 精修请求。")
+                    Text("自由 Markdown 正文不会进入模型，也不会运行 Skill 中提到的代码或工具。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -150,13 +142,13 @@ struct SettingsView: View {
                 .padding(6)
             }
 
-            Text("按住 \(hotkeys.selected.displayName) 时只显示波形；松开后使用完整语音上下文定稿并粘贴。按住期间按 Esc 取消，音频、转写正文和历史均不会写入磁盘。")
+            Text("按住 \(hotkeys.selected.displayName) 时只显示波形；松开后完成最后语段、拼接全文并粘贴。按住期间按 Esc 取消，音频、转写正文和历史均不会写入磁盘。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
             HStack {
                 Spacer()
-                Button("重新下载模型") { AppRuntime.shared.reinstallModels() }
+                Button("重新下载模型") { AppRuntime.shared.reinstallModel() }
                 Button("退出") { NSApp.terminate(nil) }
             }
         }
@@ -185,13 +177,6 @@ struct SettingsView: View {
         Binding(
             get: { hotkeys.selected },
             set: { AppRuntime.shared.selectHotkey($0) }
-        )
-    }
-
-    private var professionalBinding: Binding<Bool> {
-        Binding(
-            get: { preferences.refinementMode == .professional },
-            set: { AppRuntime.shared.selectRefinementMode($0 ? .professional : .fast) }
         )
     }
 

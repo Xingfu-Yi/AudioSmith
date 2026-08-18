@@ -483,15 +483,13 @@ final class QwenStreamingEngine {
         }.value
     }
 
-    /// Skills remain request-scoped for deterministic cleanup, but their full
-    /// Markdown body is intentionally not injected into Qwen. A large text
-    /// prompt can dominate one- or two-second utterances, adding seconds of
-    /// prefill latency and occasionally suppressing an otherwise valid result.
-    func begin() {
+    /// Only the selected Skill's bounded vocabulary context enters ASR. Its
+    /// free-form Markdown body is excluded so short commands remain responsive.
+    func begin(skill: DomainSkill) {
         guard let model else { return }
         feeder.begin(RollingInferenceSession(
             model: model,
-            context: "",
+            context: skill.asrContext,
             configuration: configuration
         ))
     }
@@ -532,7 +530,7 @@ final class QwenStreamingEngine {
     /// One-shot retry path. It is deliberately capped at twelve seconds so a
     /// bad local seam or empty tail can never cause the entire long recording to
     /// be decoded a second time.
-    func transcribe(samples: [Float]) async -> LongContextTranscription? {
+    func transcribe(samples: [Float], skill: DomainSkill = .general) async -> LongContextTranscription? {
         guard let model, !samples.isEmpty else { return nil }
         let maximumSamples = 12 * 16_000
         let boundedSamples = samples.count > maximumSamples
@@ -542,13 +540,14 @@ final class QwenStreamingEngine {
         let audioSeconds = Double(boundedSamples.count) / 16_000.0
         let maxTokens = ASRDecodeBudget.maxTokens(sampleCount: boundedSamples.count)
         let baseWindowSeconds = nativeEncoderWindowSeconds
+        let context = skill.asrContext
 
         return await Task.detached(priority: .userInitiated) {
             let output = modelBox.value.generate(
                 audio: MLXArray(boundedSamples),
                 maxTokens: maxTokens,
                 temperature: 0,
-                context: "",
+                context: context,
                 language: nil,
                 chunkDuration: 360,
                 minChunkDuration: 0.5,

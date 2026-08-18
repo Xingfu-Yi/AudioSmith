@@ -54,6 +54,27 @@ final class ModelDownloadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), Data("complete".utf8))
     }
 
+    func testRetiredDualModelCachesAreRemovedWithoutTouchingCurrentModel() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let retiredASR = root.appendingPathComponent("qwen3-asr-0.6b-8bit")
+        let retiredRefiner = root.appendingPathComponent("qwen3-1.7b-4bit-refiner")
+        let currentASR = root.appendingPathComponent("qwen3-asr-1.7b-8bit")
+        for directory in [retiredASR, retiredRefiner, currentASR] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let removed = try ModelManager.removeRetiredModelCaches(modelsRootOverride: root)
+
+        XCTAssertEqual(
+            Set(removed.map(\.standardizedFileURL.path)),
+            Set([retiredASR, retiredRefiner].map(\.standardizedFileURL.path))
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retiredASR.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retiredRefiner.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: currentASR.path))
+    }
+
     @MainActor
     func testAutomaticSourceUsesTheOnlyManifestVerifiedProbe() async throws {
         let payload = Data("verified-config".utf8)
@@ -127,7 +148,6 @@ final class ModelDownloadTests: XCTestCase {
     private func testManifest(payload: Data, revision: String) -> ModelManifest {
         ModelManifest(
             identifier: "unit-test-model",
-            purpose: .speechRecognition,
             repository: "example/unit-test-model",
             revision: revision,
             modelScopeRevision: "master",

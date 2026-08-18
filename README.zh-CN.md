@@ -14,7 +14,7 @@
 
 ## 开发者预览版
 
-Audio Smith 目前是早期源码预览，不是完成的二进制产品。它使用 Qwen3-ASR-0.6B 8-bit 做自然停顿分段识别，并默认在松开快捷键后用 Qwen3-1.7B MLX 4-bit 对整段文本精修一次。目标仍是中英混说、严格的 5GB 内存发布门禁，以及用于专业术语的标准 Markdown Skills。
+Audio Smith 目前是早期源码预览，不是完成的二进制产品。它只使用一个 Qwen3-ASR-1.7B 8-bit 模型做自然停顿分段和上下文识别，不再加载第二个文本模型，也不在松开后用 LLM 重写全文。目标仍是中英混说、严格的 5GB 内存发布门禁，以及用于专业术语的紧凑 Markdown Skills。
 
 源码已能在开发机上构建，核心单元测试也已通过。但项目尚未完成 24GB 机器、五分钟长上下文会话、公开准确率、签名和公证门禁。因此目前没有下载按钮、tag 或 DMG；在公开基准证明之前，README 也不会宣称尚未验证的准确率。
 
@@ -26,7 +26,7 @@ Audio Smith 目前是早期源码预览，不是完成的二进制产品。它�
 - macOS 14 或更高版本
 - 至少 24GB 物理统一内存（启动时硬性检查）
 - 麦克风和辅助功能权限（辅助功能同时用于全局快捷键监听）
-- 极速模式约 1.01GB，专业模式约 1.93GB，另需安装安全余量
+- 模型权重约 2.46GB，另需安装安全余量
 
 v1 有意不支持 16GB Mac，也不提供更低精度的降档模式。
 
@@ -48,27 +48,26 @@ xcodebuild -downloadComponent MetalToolchain
 ./scripts/install_dev.sh
 ```
 
-首次启动时，请授予所需权限，并等待 Audio Smith 下载和校验 [Qwen3-ASR-0.6B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-8bit)。默认开启的专业模式还会安装 [Qwen3-1.7B-MLX-4bit](https://huggingface.co/Qwen/Qwen3-1.7B-MLX-4bit)。自动下载源会并行测试 Hugging Face 与 ModelScope 中经过同一清单校验的 `config.json`，不会调用 IP 定位服务。模型权重不会存入 Git 仓库。
+首次启动时，请授予所需权限，并等待 Audio Smith 下载和校验 [Qwen3-ASR-1.7B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit)。自动下载源会并行测试 Hugging Face 与 ModelScope 中经过同一清单校验的 `config.json`，不会调用 IP 定位服务。模型权重不会存入 Git 仓库。
 
 安装脚本默认构建经过优化的 Release 版本，完成签名后启动固定路径 `/Applications/Audio Smith.app`；应用 target、可执行文件、模块、Bundle ID、数据目录和日志标识都已统一为 Audio Smith。只有开发调试时才需要显式传入 `Debug`。测试宿主使用独立的 `.TestHost` Bundle ID，安装器还会验证最终运行的一定是 `/Applications` 副本。如果钥匙串中存在 Apple Development 身份，构建脚本会自动检测并签署最终应用；没有开发证书时会回退到 ad-hoc 签名，二进制变化后 macOS 仍可能要求重新授权。
 
 开发时可以复用已有模型目录：
 
 ```bash
-AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-0.6B-8bit \
-AUDIO_SMITH_REFINER_MODEL_PATH=/absolute/path/to/Qwen3-1.7B-MLX-4bit \
+AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
   "/Applications/Audio Smith.app/Contents/MacOS/AudioSmith"
 ```
 
 ## 工作原理
 
-1. 按下已选择的听写快捷键时保存原前台应用、模式和所有已选 Skills 的快照，然后开始 16kHz 单声道录音。悬浮窗只显示波形和时长，不用不稳定的候选文字分散讲话者注意力。
-2. Qwen3-ASR-0.6B 在一段话包含至少约 1.5 秒人声后，以约 1.2 秒连续静音确认自然分段，并在边界保留 400ms 重叠保护尾音。已结束的语段会在录音期间串行、静默识别，此时绝不调用 LLM 精修。
+1. 按下已选择的听写快捷键时保存原前台应用和所有已选 Skills 的快照，然后开始 16kHz 单声道录音。悬浮窗只显示波形和时长，不用不稳定的候选文字分散讲话者注意力。
+2. Qwen3-ASR-1.7B 在一段话包含至少约 1.5 秒人声后，以约 1.2 秒连续静音确认自然分段，并在边界保留 400ms 重叠保护尾音。已结束的语段会在录音期间串行、静默识别。
 3. 短暂停顿不会切段。连续讲话始终没有停顿时，30 秒仅作为安全上限，并在末尾五秒内选择最低能量位置。松开快捷键后，任何尚未完成的有人声尾段都按真实长度处理；低于模型最短输入时才补到 0.5 秒。有人声但结果为空时只追加 250ms 尾部静音重试一次；弱语音重叠接缝最多重解码局部 12 秒。
-4. 松开后，专业模式把完整 ASR 文本和不可变 Skill 快照一次性交给 Qwen3-1.7B。候选只有通过忠实度、编辑距离、数字、URL 和邮箱校验才采用，否则完整回退 ASR 原文。极速模式同时跳过精修模型和 Skills。
-5. 空白和标点等确定性清理只执行一次。最终文字保留在剪贴板；只有原目标仍然有效且输入位置安全时才自动粘贴。
+4. 松开后只识别尚未完成的尾段，不重跑完整录音，也不用文本模型精修，因此等待时间主要取决于最后一段，而不是整次听写的总长度。
+5. Skill 规范拼写修复与空白、标点等确定性清理只执行一次。最终文字保留在剪贴板；只有原目标仍然有效且输入位置安全时才自动粘贴。
 
-录音时按 `Esc` 可取消；专业精修期间按 `Esc` 会跳过 LLM，并在 ASR 尾部就绪后立即使用完整原文。默认快捷键是 `Fn`，也可选择右 Option、右 Control或右 Command；快捷键组合仍会取消听写并保留原系统快捷键。数据流、状态机、停顿分段策略和内存门禁见[架构文档](docs/ARCHITECTURE.md)。
+按 `Esc` 可取消当前听写。默认快捷键是 `Fn`，也可选择右 Option、右 Control 或右 Command；快捷键组合仍会取消听写并保留原系统快捷键。数据流、状态机、停顿分段策略和内存门禁见[架构文档](docs/ARCHITECTURE.md)。
 
 ## Skills
 
@@ -94,7 +93,7 @@ description: Improve mixed Chinese and English AIGC dictation.
 
 初始内容只保留一个 **AIGC 专有名词读法** Skill，用紧凑表格记录大语言模型、扩散架构、图像/视频生成、训练与推理术语的规范拼写、读法和常见误识别。用户可以直接编辑表格；以后确有需要时仍可自行增加其他 Skill 目录。
 
-专业模式会解析限额内的使用说明和读法表格，并在每次请求开始时建立不可变组合快照。它不会进入 ASR，只在松开后进入唯一一次 1.7B 整段精修；读法只作为结合完整上下文判断的提示，不做无条件全局替换。单次最多启用 300 个去重术语和 8,000 个 prompt 字符。极速模式忽略 Skills，但保留用户的勾选状态。
+每次听写前，Audio Smith 会把所有已选 Skills 的读法表格解析为不可变快照。最多 40 个规范术语和读法会压缩到 1,000 字符以内，直接作为 Qwen3-ASR 的识别上下文。自由 Markdown 正文只作为不可执行的说明保留，不会发送给模型；完整的限额词典仍可用于识别后的保守规范拼写修复。
 
 Skills 是术语与上下文数据，不是可执行插件。Audio Smith 不会运行其中提到的代码、工具、脚本或链接资源。完整说明见 [Skill 规范](docs/SKILLS.md)和[可复制示例](Examples/Skills)。
 
@@ -110,7 +109,7 @@ Skills 是术语与上下文数据，不是可执行插件。Audio Smith 不会�
 
 ## 实测性能
 
-目前公开的数字来自旧的 1.7B ASR 路径，只保留为开发机（M1 Pro、32GB）历史基线：
+目前公开数字是开发机（M1 Pro、32GB）的 1.7B ASR 基线。当前应用已回到相同模型与精度，但停顿分段后的端到端应用测试仍待完成：
 
 | 测量项 | 结果 | 范围 |
 |---|---:|---|
@@ -118,7 +117,7 @@ Skills 是术语与上下文数据，不是可执行插件。Audio Smith 不会�
 | Python 进程峰值 footprint | 4.43GB | 离线推理测试 |
 | Swift Debug 加载并静音预热 | 峰值 3.40GB，稳定后 2.43GB | 仅启动阶段 |
 
-这些结果没有测量当前的 0.6B ASR + 1.7B 精修路径，不能作为它的性能宣传。运行时在 4.7GB 发出诊断警告，任何超过 5.0GB 的结果都会阻止二进制发布。当前目标和缺口在[基准文档](docs/BENCHMARKS.md)中严格分开。
+这些结果属于离线推理或启动观测，不是完整产品的端到端基准。运行时在 4.7GB 发出诊断警告，任何超过 5.0GB 的结果都会阻止二进制发布。当前目标和缺口在[基准文档](docs/BENCHMARKS.md)中严格分开。
 
 ## 开发
 
@@ -130,7 +129,7 @@ python3 scripts/validate_docs.py
 ./scripts/test.sh
 ```
 
-生成的 Xcode 工程和 `Package.resolved` 都会提交。MLXAudio Swift 固定在 commit `4266f988d170a83017d1e82e2e4654602f277f1d`，MLX Swift LM 与 Swift Transformers 也固定到明确 revision。旧转换工具仍保留在 [`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh)；Audio Smith 不使用 TorchAO FP8。
+生成的 Xcode 工程和 `Package.resolved` 都会提交。MLXAudio Swift 固定在 commit `4266f988d170a83017d1e82e2e4654602f277f1d`，其传递 MLX 依赖记录在 `Package.resolved` 中。旧转换工具仍保留在 [`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh)；Audio Smith 不使用 TorchAO FP8。
 
 ## 路线图
 

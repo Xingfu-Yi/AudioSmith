@@ -13,12 +13,6 @@ packages:
   MLXAudio:
     url: https://github.com/Blaizzy/mlx-audio-swift.git
     revision: 4266f988d170a83017d1e82e2e4654602f277f1d
-  MLXSwiftLM:
-    url: https://github.com/ml-explore/mlx-swift-lm.git
-    revision: bd4b7434e6bdb588c7ef55706ff8904cb7fd4c57
-  SwiftTransformers:
-    url: https://github.com/huggingface/swift-transformers.git
-    revision: 2fa33e1f5e7131a7fc64c28e6d161dcec0d24820
 settings:
   base:
     ARCHS: arm64
@@ -50,12 +44,6 @@ targets:
         product: MLXAudioCore
       - package: MLXAudio
         product: MLXAudioSTT
-      - package: MLXSwiftLM
-        product: MLXLLM
-      - package: MLXSwiftLM
-        product: MLXLMCommon
-      - package: SwiftTransformers
-        product: Tokenizers
     info:
       path: AudioSmith/Resources/Info.plist
       properties:
@@ -80,8 +68,8 @@ targets:
         EXECUTABLE_NAME: AudioSmith
         PRODUCT_MODULE_NAME: AudioSmith
         APP_DISPLAY_NAME: Audio Smith
-        MARKETING_VERSION: 0.1.5
-        CURRENT_PROJECT_VERSION: 6
+        MARKETING_VERSION: 0.1.6
+        CURRENT_PROJECT_VERSION: 7
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_STYLE: Automatic
         ENABLE_APP_SANDBOX: false

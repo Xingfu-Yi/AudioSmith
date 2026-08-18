@@ -75,11 +75,6 @@ private struct OverlayView: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.72))
             } else if state.phase == .finalizing {
-                if state.finalizationKind == .professional {
-                    Text("专业精修")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.58))
-                }
                 FinalizingSpinner()
             }
 
@@ -90,11 +85,6 @@ private struct OverlayView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            } else if state.phase == .finalizing,
-                      state.finalizationKind == .professional {
-                Text("ESC 跳过")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.48))
             }
         }
         .padding(.horizontal, 18)

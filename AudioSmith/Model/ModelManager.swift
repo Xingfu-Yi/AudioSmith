@@ -2,6 +2,11 @@ import CryptoKit
 import Foundation
 
 final class ModelManager: @unchecked Sendable {
+    private static let retiredModelIdentifiers = [
+        "qwen3-asr-0.6b-8bit",
+        "qwen3-1.7b-4bit-refiner",
+    ]
+
     struct Progress: Sendable {
         let completedBytes: Int64
         let totalBytes: Int64
@@ -161,6 +166,27 @@ final class ModelManager: @unchecked Sendable {
             "\(manifest.revision).removed-\(Int(Date().timeIntervalSince1970))"
         )
         try fileManager.moveItem(at: installedDirectory, to: old)
+    }
+
+    /// Removes only model caches owned by Audio Smith's retired dual-model
+    /// architecture. User Skills, settings, and the current 1.7B ASR cache are
+    /// outside these exact directories and are never touched.
+    @discardableResult
+    static func removeRetiredModelCaches(
+        fileManager: FileManager = .default,
+        modelsRootOverride: URL? = nil
+    ) throws -> [URL] {
+        let root = modelsRootOverride ?? fileManager
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AudioSmith/Models", isDirectory: true)
+        var removed: [URL] = []
+        for identifier in retiredModelIdentifiers {
+            let directory = root.appendingPathComponent(identifier, isDirectory: true)
+            guard fileManager.fileExists(atPath: directory.path) else { continue }
+            try fileManager.removeItem(at: directory)
+            removed.append(directory)
+        }
+        return removed
     }
 
     func verify(directory: URL) throws {

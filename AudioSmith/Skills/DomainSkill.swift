@@ -1,7 +1,8 @@
 import Foundation
 
 struct DomainSkill: Equatable, Identifiable, Sendable {
-    static let promptCharacterLimit = 8_000
+    static let asrContextCharacterLimit = 1_000
+    static let asrTermLimit = 40
     static let perSkillContextCharacterLimit = 4_000
     static let combinedTermLimit = 300
 
@@ -24,21 +25,21 @@ struct DomainSkill: Equatable, Identifiable, Sendable {
         terms: []
     )
 
-    var promptContext: String {
+    /// A compact vocabulary-only context for Qwen3-ASR. Free-form Markdown is
+    /// deliberately excluded: long instructions increase prefill latency and
+    /// can dominate short utterances. Pronunciation rows remain useful without
+    /// introducing a second text-generation model.
+    var asrContext: String {
         guard id != Self.general.id else { return "" }
-        var lines = [context.trimmingCharacters(in: .whitespacesAndNewlines)]
-        if !terms.isEmpty {
-            lines.append("Pronunciation hints (canonical spelling <- spoken form or likely ASR error). Apply a hint only when the full transcript makes it acoustically and contextually plausible; never inject a listed term:")
-            lines.append(terms.prefix(Self.combinedTermLimit).map { term in
-                let forms = term.spokenForms.isEmpty ? "" : " <- \(term.spokenForms.joined(separator: " / "))"
-                return "- \(term.preferred)\(forms)"
-            }.joined(separator: "\n"))
+        let entries = terms.prefix(Self.asrTermLimit).map { term in
+            guard !term.spokenForms.isEmpty else { return term.preferred }
+            return "\(term.preferred) [\(term.spokenForms.joined(separator: ", "))]"
         }
-        return String(lines.filter { !$0.isEmpty }.joined(separator: "\n").prefix(Self.promptCharacterLimit))
+        return String(entries.joined(separator: "; ").prefix(Self.asrContextCharacterLimit))
     }
 
     /// Creates the immutable, bounded snapshot used for one dictation. Skills
-    /// are sorted by id so the same selection always produces the same prompt.
+    /// are sorted by id so the same selection always produces the same context.
     static func combined(_ selected: [DomainSkill]) -> DomainSkill {
         let selected = selected
             .filter { $0.id != Self.general.id }
@@ -119,7 +120,7 @@ enum SkillDocumentParser {
         let bodyStart = lines.index(after: closingIndex)
         let body = Array(lines[bodyStart...])
         let displayName = firstLevelOneHeading(in: body) ?? identifier
-        let context = promptBodyExcludingVocabulary(in: body)
+        let context = documentationBodyExcludingVocabulary(in: body)
         let vocabularyLines = section(named: vocabularyHeadings, in: body)
         let terms = try parseTerms(vocabularyLines)
 
@@ -152,11 +153,10 @@ enum SkillDocumentParser {
             .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
     }
 
-    /// Treat the standard Markdown body as bounded ASR context while parsing
-    /// Vocabulary separately into preferred spellings and aliases. This lets a
-    /// Skill add guidance, examples, or project context without a companion
-    /// schema, and still prevents executable resources from being loaded.
-    private static func promptBodyExcludingVocabulary(in lines: [String]) -> String {
+    /// Retain the standard Markdown body as bounded local documentation while
+    /// parsing the pronunciation table separately. Only that compact table can
+    /// become model context; linked resources are never loaded or executed.
+    private static func documentationBodyExcludingVocabulary(in lines: [String]) -> String {
         var captured: [String] = []
         var isVocabularySection = false
 

@@ -2,7 +2,7 @@ import XCTest
 @testable import AudioSmith
 
 final class DomainSkillTests: XCTestCase {
-    func testSkillBuildsBoundedPronunciationPrompt() {
+    func testSkillBuildsBoundedVocabularyOnlyASRContext() {
         let skill = DomainSkill(
             id: "medical",
             name: "医学",
@@ -10,13 +10,30 @@ final class DomainSkillTests: XCTestCase {
             context: String(repeating: "x", count: 5_000),
             terms: [.init(preferred: "HbA1c", spokenForms: ["H B A one C"])]
         )
-        XCTAssertLessThanOrEqual(skill.promptContext.count, DomainSkill.promptCharacterLimit)
-        XCTAssertTrue(skill.promptContext.contains("HbA1c <- H B A one C"))
-        XCTAssertTrue(skill.promptContext.contains("never inject a listed term"))
+        XCTAssertLessThanOrEqual(skill.asrContext.count, DomainSkill.asrContextCharacterLimit)
+        XCTAssertEqual(skill.asrContext, "HbA1c [H B A one C]")
+        XCTAssertFalse(skill.asrContext.contains("xxx"))
     }
 
     func testGeneralSkillHasNoContext() {
-        XCTAssertTrue(DomainSkill.general.promptContext.isEmpty)
+        XCTAssertTrue(DomainSkill.general.asrContext.isEmpty)
+    }
+
+    func testASRContextUsesAtMostFortyTerms() {
+        let terms = (0..<45).map {
+            DomainSkill.Term(preferred: "term-\($0)", spokenForms: ["spoken-\($0)"])
+        }
+        let skill = DomainSkill(
+            id: "bounded",
+            name: "Bounded",
+            description: "test",
+            context: "ignored",
+            terms: terms
+        )
+
+        XCTAssertTrue(skill.asrContext.contains("term-39"))
+        XCTAssertFalse(skill.asrContext.contains("term-40"))
+        XCTAssertLessThanOrEqual(skill.asrContext.count, DomainSkill.asrContextCharacterLimit)
     }
 
     func testCombinesMultipleSkillsIntoOneBoundedSnapshot() {
@@ -44,11 +61,12 @@ final class DomainSkillTests: XCTestCase {
         let snapshot = DomainSkill.combined([training, ai])
 
         XCTAssertEqual(snapshot.id, "combined")
-        XCTAssertTrue(snapshot.promptContext.contains("diffusion models"))
-        XCTAssertTrue(snapshot.promptContext.contains("training frameworks"))
+        XCTAssertTrue(snapshot.context.contains("diffusion models"))
+        XCTAssertTrue(snapshot.context.contains("training frameworks"))
         XCTAssertEqual(snapshot.terms.map(\.preferred), ["epsilon", "MLX", "training framework"])
         XCTAssertEqual(snapshot.terms.first?.spokenForms, ["App Store"])
-        XCTAssertLessThanOrEqual(snapshot.promptContext.count, DomainSkill.promptCharacterLimit)
+        XCTAssertTrue(snapshot.asrContext.contains("epsilon [App Store]"))
+        XCTAssertLessThanOrEqual(snapshot.asrContext.count, DomainSkill.asrContextCharacterLimit)
     }
 
     func testEmptySelectionUsesGeneralSkill() {
@@ -105,7 +123,7 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertEqual(skill.terms[0].spokenForms, ["H B A one C", "糖化血红蛋白"])
     }
 
-    func testPassesGuidanceAndExamplesAsContextButParsesVocabularySeparately() throws {
+    func testRetainsGuidanceAsDocumentationButOnlyVocabularyEntersASR() throws {
         let markdown = #"""
         ---
         name: aigc
@@ -138,6 +156,8 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertTrue(skill.context.contains("## Examples"))
         XCTAssertFalse(skill.context.contains("## Vocabulary"))
         XCTAssertEqual(skill.terms, [.init(preferred: "epsilon", spokenForms: ["艾普西龙"])])
+        XCTAssertEqual(skill.asrContext, "epsilon [艾普西龙]")
+        XCTAssertFalse(skill.asrContext.contains("Do not translate"))
     }
 
     func testParsesCompactPronunciationTable() throws {
@@ -170,7 +190,7 @@ final class DomainSkillTests: XCTestCase {
             .init(preferred: "Qwen", spokenForms: ["千问"]),
             .init(preferred: "token", spokenForms: ["偷啃", "托肯"])
         ])
-        XCTAssertTrue(skill.promptContext.contains("token <- 偷啃 / 托肯"))
+        XCTAssertTrue(skill.asrContext.contains("token [偷啃, 托肯]"))
     }
 
     func testParsesCategorizedVocabularySubheadings() throws {
@@ -229,6 +249,6 @@ final class DomainSkillTests: XCTestCase {
         XCTAssertEqual(skill.id, "medical-dictation")
         XCTAssertEqual(skill.name, "医学听写示例")
         XCTAssertEqual(skill.terms.first?.preferred, "HbA1c")
-        XCTAssertFalse(skill.promptContext.isEmpty)
+        XCTAssertFalse(skill.asrContext.isEmpty)
     }
 }

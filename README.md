@@ -14,7 +14,7 @@
 
 ## Developer Preview
 
-Audio Smith is an early source preview, not a finished binary release. It uses Qwen3-ASR-0.6B 8-bit for pause-segmented recognition and, by default, one Qwen3-1.7B MLX 4-bit whole-transcript refinement pass. The goals are mixed Chinese/English speech, a strict 5GB memory release gate, and standard Markdown Skills for specialist terminology.
+Audio Smith is an early source preview, not a finished binary release. It uses one Qwen3-ASR-1.7B 8-bit model for pause-segmented, context-aware recognition. There is no second text model and no post-dictation LLM rewrite. The goals are mixed Chinese/English speech, a strict 5GB memory release gate, and compact Markdown Skills for specialist terminology.
 
 The source builds and the core unit tests pass on the development Mac. The project has not yet completed its 24GB-device, five-minute long-context, public accuracy, signing, or notarization gates. There is therefore no download button, tag, or DMG yet, and this README does not claim accuracy that the public benchmark has not established.
 
@@ -26,7 +26,7 @@ Runtime requirements:
 - macOS 14 or later
 - At least 24GB of physical unified memory (enforced at launch)
 - Microphone and Accessibility permissions (Accessibility also enables global shortcut monitoring)
-- Approximately 1.01GB in Fast mode or 1.93GB in Professional mode, plus installation headroom
+- Approximately 2.46GB of model weights, plus installation headroom
 
 16GB Macs are intentionally unsupported in v1; the app does not offer a lower-precision fallback.
 
@@ -48,27 +48,26 @@ xcodebuild -downloadComponent MetalToolchain
 ./scripts/install_dev.sh
 ```
 
-On first launch, grant the requested permissions and let Audio Smith download and verify [Qwen3-ASR-0.6B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-8bit). Professional mode, which is enabled by default, also installs [Qwen3-1.7B-MLX-4bit](https://huggingface.co/Qwen/Qwen3-1.7B-MLX-4bit). Automatic source selection races the manifest-verified `config.json` from Hugging Face and ModelScope; it does not use IP geolocation. Model weights are never stored in this Git repository.
+On first launch, grant the requested permissions and let Audio Smith download and verify [Qwen3-ASR-1.7B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit). Automatic source selection races the manifest-verified `config.json` from Hugging Face and ModelScope; it does not use IP geolocation. Model weights are never stored in this Git repository.
 
 The installer builds the optimized Release configuration by default, signs it, and launches the stable `/Applications/Audio Smith.app` path. The application target, executable, module, bundle identifier, support directory, and log subsystem all use the Audio Smith identity. Pass `Debug` explicitly only for development. When an Apple Development identity is available, the build script detects and applies it to the final app, including the Hardened Runtime audio-input entitlement. Test hosts use a separate `.TestHost` bundle identifier, and the installer verifies that the launched process is the `/Applications` copy. Without a development identity, signing falls back to ad hoc and macOS may require permission again after binary changes.
 
 For development, an existing model directory can be reused:
 
 ```bash
-AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-0.6B-8bit \
-AUDIO_SMITH_REFINER_MODEL_PATH=/absolute/path/to/Qwen3-1.7B-MLX-4bit \
+AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
   "/Applications/Audio Smith.app/Contents/MacOS/AudioSmith"
 ```
 
 ## How It Works
 
-1. Pressing the selected push-to-talk key snapshots the foreground app, mode, and selected Skills, then starts 16kHz mono capture. The overlay shows only a waveform and elapsed time, so provisional text cannot distract the speaker.
-2. Qwen3-ASR-0.6B closes a phrase after about 1.2 seconds of measured silence, once that phrase contains at least 1.5 seconds of voiced audio. A 400ms boundary overlap protects phonemes. Completed phrases are decoded serially and invisibly while recording; no LLM refinement runs at that stage.
+1. Pressing the selected push-to-talk key snapshots the foreground app and selected Skills, then starts 16kHz mono capture. The overlay shows only a waveform and elapsed time, so provisional text cannot distract the speaker.
+2. Qwen3-ASR-1.7B closes a phrase after about 1.2 seconds of measured silence, once that phrase contains at least 1.5 seconds of voiced audio. A 400ms boundary overlap protects phonemes. Completed phrases are decoded serially and invisibly while recording.
 3. Brief pauses do not split a phrase. Uninterrupted speech uses a 30-second safety limit and cuts near the lowest-energy point in the final five seconds. On release, every unfinished voiced tail uses its real duration; input below the model minimum is padded only to 0.5 seconds. Empty voiced output is retried once with 250ms of trailing silence, while weak speech-overlap seams use at most a 12-second local recovery decode.
-4. On release, Professional mode sends the complete stitched ASR transcript and the immutable Skill snapshot to Qwen3-1.7B exactly once. The result is accepted only after fidelity, edit-distance, number, URL, and email checks; otherwise the complete ASR text is used. Fast mode skips both the refiner and Skills.
-5. Deterministic spacing and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
+4. On release, only the unfinished tail is decoded. No full-recording re-decode and no text-model refinement are performed, so release latency scales with the final phrase rather than the entire dictation.
+5. Skill-aware canonical spelling repair plus deterministic spacing and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
 
-`Esc` cancels a recording. During Professional finalization it skips the LLM and immediately falls back to the complete ASR transcript as soon as the tail is ready. The default is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, pause segmentation, and memory gates.
+`Esc` cancels the active request. The default shortcut is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, pause segmentation, and memory gates.
 
 ## Skills
 
@@ -94,7 +93,7 @@ User Skills live at `~/Library/Application Support/AudioSmith/Skills/<name>/SKIL
 
 The single starter Skill is **AIGC Pronunciation Dictionary**. Its compact tables map canonical spellings to spoken forms or common ASR errors for LLMs, diffusion architectures, image/video generation, training, inference, and model names. Users can edit the tables directly or add their own Skill directories later.
 
-Professional mode parses bounded guidance and pronunciation tables, then captures all selected Skills in one immutable request snapshot. The snapshot never enters ASR; it is supplied only to the single whole-transcript 1.7B pass after release. Pronunciations are contextual hints rather than unconditional replacements. At most 300 unique terms and 8,000 prompt characters are active. Fast mode ignores Skills while preserving the user's checkboxes.
+Before every request, Audio Smith parses the pronunciation tables from all selected Skills into one immutable snapshot. Up to 40 canonical terms and spoken forms are compacted into at most 1,000 characters and supplied directly to Qwen3-ASR as recognition context. Free-form Markdown is retained as inert documentation but is not sent to the model. The full bounded dictionary remains available for conservative canonical-spelling cleanup after recognition.
 
 Skills are terminology data, not executable plugins. Audio Smith never runs code, tools, scripts, or linked resources referenced by a Skill. See the [complete Skill specification](docs/SKILLS.md) and the [copyable examples](Examples/Skills).
 
@@ -110,7 +109,7 @@ Please report security issues through the process in [SECURITY.md](SECURITY.md),
 
 ## Measured Performance
 
-The only published measurements predate the new dual-model path and remain a legacy 1.7B-ASR baseline on the development machine (M1 Pro, 32GB):
+The published measurements are a 1.7B-ASR baseline on the development machine (M1 Pro, 32GB). The current app now uses the same model family and precision, but pause-segmented end-to-end app measurements are still pending:
 
 | Measurement | Result | Scope |
 |---|---:|---|
@@ -118,7 +117,7 @@ The only published measurements predate the new dual-model path and remain a leg
 | Python process peak footprint | 4.43GB | Offline inference harness |
 | Swift Debug load + silent prewarm | 3.40GB peak, 2.43GB settled | Startup only |
 
-They do not measure the current 0.6B ASR + 1.7B refiner configuration and cannot be used as its performance claim. The runtime warns at 4.7GB, and any result above 5.0GB blocks a binary release. Current targets and known gaps are separated in [Benchmarks](docs/BENCHMARKS.md).
+These rows are offline/startup observations rather than a completed end-to-end product benchmark. The runtime warns at 4.7GB, and any result above 5.0GB blocks a binary release. Current targets and known gaps are separated in [Benchmarks](docs/BENCHMARKS.md).
 
 ## Development
 
@@ -130,7 +129,7 @@ python3 scripts/validate_docs.py
 ./scripts/test.sh
 ```
 
-The generated Xcode project and `Package.resolved` are committed. MLXAudio Swift is pinned to commit `4266f988d170a83017d1e82e2e4654602f277f1d`; MLX Swift LM and Swift Transformers are pinned by revision as well. The legacy conversion utility remains at [`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh). Audio Smith does not use TorchAO FP8.
+The generated Xcode project and `Package.resolved` are committed. MLXAudio Swift is pinned to commit `4266f988d170a83017d1e82e2e4654602f277f1d`; its transitive MLX dependencies are recorded in `Package.resolved`. The legacy conversion utility remains at [`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh). Audio Smith does not use TorchAO FP8.
 
 ## Roadmap
 
