@@ -99,13 +99,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		18CD3117711E65C0C3DEBA32 /* Refinement */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Refinement;
-			sourceTree = "<group>";
-		};
 		246FAC045115DBA23572E03C /* Hotkey */ = {
 			isa = PBXGroup;
 			children = (
@@ -172,7 +165,6 @@
 				AF4160B91520B871DDF34F51 /* Audio */,
 				246FAC045115DBA23572E03C /* Hotkey */,
 				B516DC6B81D9895C454CC774 /* Model */,
-				18CD3117711E65C0C3DEBA32 /* Refinement */,
 				D98798EB1B9AD79C303ED19B /* Resources */,
 				FFB2F8F4C8A38EC33FB182BC /* Skills */,
 				7EF7208825D163529FDE554A /* System */,
