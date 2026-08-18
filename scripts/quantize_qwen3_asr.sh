@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_dir=${0:A:h:h}
 output_dir=${1:-"$repo_dir/artifacts/Qwen3-ASR-1.7B-8bit"}
-venv_dir=${DICTATE_AGENT_QUANT_VENV:-"$repo_dir/.venv-quantize"}
+venv_dir=${AUDIO_SMITH_QUANT_VENV:-"$repo_dir/.venv-quantize"}
 python_bin=${PYTHON_BIN:-python3}
 source_model='Qwen/Qwen3-ASR-1.7B'
 source_revision='7278e1e70fe206f11671096ffdd38061171dd6e5'

@@ -5,7 +5,7 @@ Audio Smith downloads or links the following components. Their licenses remain i
 ## Qwen3-ASR-1.7B
 
 - Copyright: Qwen Team / Alibaba Cloud
-- Original model: <https://huggingface.co/Qwen/Qwen3-ASR-1.7B>
+- Original model family: <https://huggingface.co/Qwen/Qwen3-ASR-1.7B>
 - MLX conversion: <https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit>
 - License: Apache License 2.0
 - License text: <https://github.com/QwenLM/Qwen3-ASR/blob/main/LICENSE>

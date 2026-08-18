@@ -7,6 +7,6 @@ xcuserdata/
 .swiftpm/
 .venv-quantize/
 .env
-DictateAgent/Resources/Model/model.safetensors
-DictateAgent/Resources/Model/*.safetensors
+AudioSmith/Resources/Model/model.safetensors
+AudioSmith/Resources/Model/*.safetensors
 artifacts/

@@ -4,7 +4,7 @@ configs:
   Test: debug
   Release: release
 options:
-  bundleIdPrefix: io.dictateagent
+  bundleIdPrefix: com.xingfuyi
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -22,16 +22,17 @@ settings:
     ENABLE_HARDENED_RUNTIME: true
     DEAD_CODE_STRIPPING: true
 targets:
-  DictateAgent:
+  AudioSmith:
     type: application
     platform: macOS
+    productName: "Audio Smith"
     sources:
-      - path: DictateAgent
+      - path: AudioSmith
         excludes:
           - Resources/Info.plist
-          - Resources/DictateAgent.entitlements
+          - Resources/AudioSmith.entitlements
           - Resources/Skills
-      - path: DictateAgent/Resources/Skills
+      - path: AudioSmith/Resources/Skills
         type: folder
         buildPhase: resources
       - path: LICENSE
@@ -44,7 +45,7 @@ targets:
       - package: MLXAudio
         product: MLXAudioSTT
     info:
-      path: DictateAgent/Resources/Info.plist
+      path: AudioSmith/Resources/Info.plist
       properties:
         CFBundleDisplayName: $(APP_DISPLAY_NAME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -57,45 +58,48 @@ targets:
         NSHumanReadableCopyright: Copyright © 2026 Audio Smith contributors. MIT License.
         NSPrincipalClass: NSApplication
     entitlements:
-      path: DictateAgent/Resources/DictateAgent.entitlements
+      path: AudioSmith/Resources/AudioSmith.entitlements
       properties:
         com.apple.security.device.audio-input: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgent
-        PRODUCT_NAME: DictateAgent
-        PRODUCT_MODULE_NAME: DictateAgent
+        PRODUCT_BUNDLE_IDENTIFIER: com.xingfuyi.AudioSmith
+        PRODUCT_NAME: "Audio Smith"
+        EXECUTABLE_NAME: AudioSmith
+        PRODUCT_MODULE_NAME: AudioSmith
         APP_DISPLAY_NAME: Audio Smith
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.6
+        CURRENT_PROJECT_VERSION: 7
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_STYLE: Automatic
         ENABLE_APP_SANDBOX: false
       configs:
         Test:
-          PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgent.TestHost
+          PRODUCT_BUNDLE_IDENTIFIER: com.xingfuyi.AudioSmith.TestHost
           APP_DISPLAY_NAME: Audio Smith Test Host
-  DictateAgentTests:
+  AudioSmithTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: DictateAgentTests
+      - path: AudioSmithTests
       - path: Examples/Skills
         type: folder
         buildPhase: resources
     dependencies:
-      - target: DictateAgent
+      - target: AudioSmith
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.dictateagent.DictateAgentTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.xingfuyi.AudioSmithTests
         GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Audio Smith.app/Contents/MacOS/AudioSmith"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   AudioSmith:
     build:
       targets:
-        DictateAgent: all
-        DictateAgentTests: [test]
+        AudioSmith: all
+        AudioSmithTests: [test]
     test:
       config: Test
       targets:
-        - DictateAgentTests
+        - AudioSmithTests

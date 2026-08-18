@@ -28,9 +28,9 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   test
 
-test_host_info="$repo_dir/build/DerivedData/Build/Products/Test/DictateAgent.app/Contents/Info.plist"
+test_host_info="$repo_dir/build/DerivedData/Build/Products/Test/Audio Smith.app/Contents/Info.plist"
 test_host_bundle_id=$(plutil -extract CFBundleIdentifier raw "$test_host_info" 2>/dev/null || true)
-if [[ "$test_host_bundle_id" != "io.dictateagent.DictateAgent.TestHost" ]]; then
+if [[ "$test_host_bundle_id" != "com.xingfuyi.AudioSmith.TestHost" ]]; then
   print -u2 "Test host must use the isolated .TestHost bundle identifier."
   exit 1
 fi

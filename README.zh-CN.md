@@ -14,7 +14,7 @@
 
 ## 开发者预览版
 
-Audio Smith 目前是早期源码预览，不是完成的二进制产品。项目围绕 Qwen3-ASR-1.7B、MLX 8-bit affine 权重、中英混说、严格的 5GB 内存发布门禁，以及用于专业术语的标准 Markdown Skills 设计。
+Audio Smith 目前是早期源码预览，不是完成的二进制产品。它只使用一个 Qwen3-ASR-1.7B 8-bit 模型做自然停顿分段和上下文识别，不再加载第二个文本模型，也不在松开后用 LLM 重写全文。目标仍是中英混说、严格的 5GB 内存发布门禁，以及用于专业术语的紧凑 Markdown Skills。
 
 源码已能在开发机上构建，核心单元测试也已通过。但项目尚未完成 24GB 机器、五分钟长上下文会话、公开准确率、签名和公证门禁。因此目前没有下载按钮、tag 或 DMG；在公开基准证明之前，README 也不会宣称尚未验证的准确率。
 
@@ -25,8 +25,8 @@ Audio Smith 目前是早期源码预览，不是完成的二进制产品。项�
 - Apple Silicon Mac
 - macOS 14 或更高版本
 - 至少 24GB 物理统一内存（启动时硬性检查）
-- 麦克风、输入监控和辅助功能权限
-- 固定模型约 2.46GB，另需安装安全余量
+- 麦克风和辅助功能权限（辅助功能同时用于全局快捷键监听）
+- 模型权重约 2.46GB，另需安装安全余量
 
 v1 有意不支持 16GB Mac，也不提供更低精度的降档模式。
 
@@ -48,25 +48,26 @@ xcodebuild -downloadComponent MetalToolchain
 ./scripts/install_dev.sh
 ```
 
-首次启动时，请授予所需权限，并等待 Audio Smith 下载和校验固定版本的 [mlx-community/Qwen3-ASR-1.7B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit) 模型。下载量约 2.46GB，模型权重不会存入 Git 仓库。
+首次启动时，请授予所需权限，并等待 Audio Smith 下载和校验 [Qwen3-ASR-1.7B-8bit](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit)。自动下载源会并行测试 Hugging Face 与 ModelScope 中经过同一清单校验的 `config.json`，不会调用 IP 定位服务。模型权重不会存入 Git 仓库。
 
-安装脚本会构建、签名并启动固定路径 `/Applications/DictateAgent.app`。`AudioSmith` 仓库暂时保留历史内部应用路径、Bundle ID 和数据目录，因此现有模型、Skills 与 macOS 权限无需迁移。测试宿主使用独立的 `.TestHost` Bundle ID，安装器还会验证最终运行的一定是 `/Applications` 副本。如果钥匙串中存在 Apple Development 身份，构建脚本会自动检测并签署最终应用；没有开发证书时会回退到 ad-hoc 签名，二进制变化后 macOS 仍可能要求重新授权。
+安装脚本默认构建经过优化的 Release 版本，完成签名后启动固定路径 `/Applications/Audio Smith.app`；应用 target、可执行文件、模块、Bundle ID、数据目录和日志标识都已统一为 Audio Smith。只有开发调试时才需要显式传入 `Debug`。测试宿主使用独立的 `.TestHost` Bundle ID，安装器还会验证最终运行的一定是 `/Applications` 副本。如果钥匙串中存在 Apple Development 身份，构建脚本会自动检测并签署最终应用；没有开发证书时会回退到 ad-hoc 签名，二进制变化后 macOS 仍可能要求重新授权。
 
 开发时可以复用已有模型目录：
 
 ```bash
-DICTATE_AGENT_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
-  /Applications/DictateAgent.app/Contents/MacOS/DictateAgent
+AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
+  "/Applications/Audio Smith.app/Contents/MacOS/AudioSmith"
 ```
 
 ## 工作原理
 
 1. 按下已选择的听写快捷键时保存原前台应用和所有已选 Skills 的快照，然后开始 16kHz 单声道录音。悬浮窗只显示波形和时长，不用不稳定的候选文字分散讲话者注意力。
-2. Qwen 保留原生约 8 秒编码块；Audio Smith 在后台使用 32 秒滑动精修窗口。25% overlap 自动得到 8 秒重叠和 24 秒步长，界面仍只显示波形。
-3. 超出活动 overlap 的前文在内部封存。松开快捷键后只解码最后的尾部窗口；若窗口拼接置信度不足，则安全回退到一次整段解码。
-4. 术语替换、空白和标点清理只执行一次。最终文字保留在剪贴板；只有原目标仍然有效且输入位置安全时才自动粘贴。
+2. Qwen3-ASR-1.7B 在一段话包含至少约 1.5 秒人声后，以约 1.2 秒连续静音确认自然分段，并在边界保留 400ms 重叠保护尾音。已结束的语段会在录音期间串行、静默识别。
+3. 短暂停顿不会切段。连续讲话始终没有停顿时，30 秒仅作为安全上限，并在末尾五秒内选择最低能量位置。松开快捷键后，任何尚未完成的有人声尾段都按真实长度处理；低于模型最短输入时才补到 0.5 秒。有人声但结果为空时只追加 250ms 尾部静音重试一次；弱语音重叠接缝最多重解码局部 12 秒。
+4. 松开后只识别尚未完成的尾段，不重跑完整录音，也不用文本模型精修，因此等待时间主要取决于最后一段，而不是整次听写的总长度。
+5. Skill 规范拼写修复与空白、标点等确定性清理只执行一次。最终文字保留在剪贴板；只有原目标仍然有效且输入位置安全时才自动粘贴。
 
-按 `Esc` 可取消。默认快捷键是 `Fn`，也可选择右 Option、右 Control 或右 Command；`Fn` 与 F1–F12 组合，或其他所选修饰键与任意按键组合时，会取消听写并保留原快捷键。音频与编码器状态都有边界，长会话不会被设计为持续积累无限历史。数据流、状态机、窗口策略和内存门禁见[架构文档](docs/ARCHITECTURE.md)。
+按 `Esc` 可取消当前听写。默认快捷键是 `Fn`，也可选择右 Option、右 Control 或右 Command；快捷键组合仍会取消听写并保留原系统快捷键。数据流、状态机、停顿分段策略和内存门禁见[架构文档](docs/ARCHITECTURE.md)。
 
 ## Skills
 
@@ -78,30 +79,23 @@ name: aigc
 description: Improve mixed Chinese and English AIGC dictation.
 ---
 
-# AIGC 词汇与转写
+# AIGC 专有名词读法
 
-## Dictation context
+## 专有名词与读法
 
-The speaker discusses LLMs, diffusion models, and video generation.
-
-## Transcription guidance
-
-- Preserve English technical terms inside Chinese sentences.
-- Use a long rolling context and the selected Skills to disambiguate similar sounds.
-
-## Vocabulary
-
-- `Diffusion Models`: `diffusion models`
-- `epsilon`: `艾普西龙`
+| 规范写法 | 读法或常见误识别 |
+|---|---|
+| Qwen-Image-Edit | 千问 Image Edit |
+| token | 偷啃 |
 ```
 
-用户 Skills 固定放在 `~/Library/Application Support/DictateAgent/Skills/<name>/SKILL.md`。本版本首次启动时会自动把一个可编辑的 `aigc/SKILL.md` 模板复制进去；用户副本优先于应用内置后备版本，保存修改后下一次听写自动生效，不需要重启应用。系统设置负责展示 Skills，菜单栏只保留快捷键、系统设置和退出三行。
+用户 Skills 固定放在 `~/Library/Application Support/AudioSmith/Skills/<name>/SKILL.md`。本版本首次启动时会自动把一个可编辑的 `aigc/SKILL.md` 模板复制进去；用户副本优先于应用内置后备版本，保存修改后下一次听写自动生效，不需要重启应用。系统设置负责展示 Skills，菜单栏只保留快捷键、系统设置和退出三行。
 
-初始内容只保留一个 **AIGC 词汇与转写** Skill，覆盖大语言模型、扩散架构、图像/视频生成、训练、推理，以及容易听错的框架和模型名称。用户可以直接编辑它；以后确有需要时仍可自行增加其他 Skill 目录。
+初始内容只保留一个 **AIGC 专有名词读法** Skill，用紧凑表格记录大语言模型、扩散架构、图像/视频生成、训练与推理术语的规范拼写、读法和常见误识别。用户可以直接编辑表格；以后确有需要时仍可自行增加其他 Skill 目录。
 
-除了 `Vocabulary` 以外的正文段落都会成为有长度限制的 ASR 上下文，所以 `Transcription guidance`、示例、项目背景和个人转写偏好都能影响解码；`Vocabulary` 则单独解析成标准拼写和安全别名。本次请求使用不可变快照，prompt 上限为 8,000 字符、去重术语上限为 300 个；未选择 Skill 时使用通用听写。
+每次听写前，Audio Smith 会把所有已选 Skills 的读法表格解析为不可变快照。最多 40 个规范术语和读法会压缩到 1,000 字符以内，直接作为 Qwen3-ASR 的识别上下文。自由 Markdown 正文只作为不可执行的说明保留，不会发送给模型；完整的限额词典仍可用于识别后的保守规范拼写修复。
 
-Skills 是文本上下文，不是可执行插件：Markdown 中的转写规则可以影响 ASR，但 Audio Smith 不会运行其中提到的代码、工具或脚本。完整说明见 [Skill 规范](docs/SKILLS.md)和[可复制示例](Examples/Skills)。
+Skills 是术语与上下文数据，不是可执行插件。Audio Smith 不会运行其中提到的代码、工具、脚本或链接资源。完整说明见 [Skill 规范](docs/SKILLS.md)和[可复制示例](Examples/Skills)。
 
 ## 隐私
 
@@ -115,7 +109,7 @@ Skills 是文本上下文，不是可执行插件：Markdown 中的转写规则�
 
 ## 实测性能
 
-当前开发机（M1 Pro、32GB）的记录：
+目前公开数字是开发机（M1 Pro、32GB）的 1.7B ASR 基线。当前应用已回到相同模型与精度，但停顿分段后的端到端应用测试仍待完成：
 
 | 测量项 | 结果 | 范围 |
 |---|---:|---|
@@ -123,11 +117,11 @@ Skills 是文本上下文，不是可执行插件：Markdown 中的转写规则�
 | Python 进程峰值 footprint | 4.43GB | 离线推理测试 |
 | Swift Debug 加载并静音预热 | 峰值 3.40GB，稳定后 2.43GB | 仅启动阶段 |
 
-这些结果不能替代五分钟长上下文听写或 24GB 机器的发布测试。运行时在 4.7GB 发出诊断警告，任何超过 5.0GB 的结果都会阻止二进制发布。方法、已知缺口、延迟和准确率目标在[基准文档](docs/BENCHMARKS.md)中严格分开。
+这些结果属于离线推理或启动观测，不是完整产品的端到端基准。运行时在 4.7GB 发出诊断警告，任何超过 5.0GB 的结果都会阻止二进制发布。当前目标和缺口在[基准文档](docs/BENCHMARKS.md)中严格分开。
 
 ## 开发
 
-运行仓库校验和当前 20 个单元测试：
+运行仓库校验和当前单元测试：
 
 ```bash
 python3 scripts/validate_skills.py
@@ -135,11 +129,11 @@ python3 scripts/validate_docs.py
 ./scripts/test.sh
 ```
 
-生成的 Xcode 工程和 `Package.resolved` 都会提交。MLXAudio Swift 固定在 commit `4266f988d170a83017d1e82e2e4654602f277f1d`。[`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh) 提供可复现的 8-bit/group-size-64 转换；Audio Smith 不使用 TorchAO FP8。
+生成的 Xcode 工程和 `Package.resolved` 都会提交。MLXAudio Swift 固定在 commit `4266f988d170a83017d1e82e2e4654602f277f1d`，其传递 MLX 依赖记录在 `Package.resolved` 中。旧转换工具仍保留在 [`scripts/quantize_qwen3_asr.sh`](scripts/quantize_qwen3_asr.sh)；Audio Smith 不使用 TorchAO FP8。
 
 ## 路线图
 
-- 在 M1 Pro 32GB 和至少一台 24GB Apple Silicon Mac 上完成五分钟滑动窗口听写与 5GB footprint 门禁。
+- 在 M1 Pro 32GB 和至少一台 24GB Apple Silicon Mac 上完成五分钟停顿分段听写与 5GB footprint 门禁。
 - 公开中文、英文和中英混说相对 BF16 的准确率对比。
 - 完成辅助功能、安全输入框、多显示器、全屏、睡眠唤醒及目标应用测试。
 - 完成应用图标、第三方许可证终审、Developer ID 签名、公证和可验证 DMG。

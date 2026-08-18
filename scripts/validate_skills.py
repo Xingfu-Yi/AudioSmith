@@ -8,14 +8,30 @@ import sys
 from pathlib import Path
 
 
-ROOTS = (Path("DictateAgent/Resources/Skills"), Path("Examples/Skills"))
+ROOTS = (Path("AudioSmith/Resources/Skills"), Path("Examples/Skills"))
 NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CONTEXT_HEADINGS = {"dictation context", "context", "听写上下文", "上下文"}
 VOCABULARY_HEADINGS = {
+    "pronunciation dictionary",
+    "pronunciations",
+    "terms and pronunciations",
+    "专有名词与读法",
+    "术语与读法",
+    "发音词典",
     "vocabulary",
     "preferred vocabulary",
     "preferred terms",
     "词汇",
+    "术语",
+}
+TABLE_HEADERS = {
+    "canonical",
+    "canonical spelling",
+    "preferred spelling",
+    "term",
+    "规范写法",
+    "标准写法",
+    "专有名词",
     "术语",
 }
 
@@ -46,6 +62,22 @@ def metadata_value(lines: list[str], key: str) -> str | None:
                 value = value[1:-1]
             return value
     return None
+
+
+def is_pronunciation_entry(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith("- "):
+        return "`" in stripped or ":" in stripped
+    if not stripped.startswith("|"):
+        return False
+    cells = [cell.strip().strip("`") for cell in stripped.strip("|").split("|")]
+    if len(cells) < 2 or not cells[0]:
+        return False
+    canonical = cells[0]
+    if canonical.lower() in TABLE_HEADERS:
+        return False
+    separator = canonical.replace(":", "").replace(" ", "")
+    return bool(separator) and set(separator) != {"-"}
 
 
 def validate(path: Path) -> list[str]:
@@ -80,11 +112,11 @@ def validate(path: Path) -> list[str]:
     body = lines[closing + 1 :]
     context = "\n".join(section(body, CONTEXT_HEADINGS)).strip()
     vocabulary = section(body, VOCABULARY_HEADINGS)
-    terms = [line for line in vocabulary if line.strip().startswith("- ") and "`" in line]
+    terms = [line for line in vocabulary if is_pronunciation_entry(line)]
     if not context and not terms:
-        errors.append("Dictation context or Vocabulary content is required")
+        errors.append("Dictation context or pronunciation dictionary content is required")
     if len(terms) > 200:
-        errors.append("Vocabulary exceeds 200 entries")
+        errors.append("Pronunciation dictionary exceeds 200 entries")
     return errors
 
 

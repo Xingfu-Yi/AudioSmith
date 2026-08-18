@@ -50,4 +50,4 @@ After the first push:
 - [ ] `scripts/verify_release_version.sh v<version>` passes
 - [ ] A release candidate DMG passes Gatekeeper on a clean Mac
 
-Prerelease tags such as `v0.1.0-alpha.1` are marked as GitHub prereleases automatically. Do not publish `v0.1.0` as stable until the release gates are complete.
+Prerelease tags such as `v0.1.6-alpha.1` are marked as GitHub prereleases automatically. Do not publish `v0.1.6` as stable until the release gates are complete.
