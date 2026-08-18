@@ -21,7 +21,7 @@ jobs:
       DMG_PATH: build/AudioSmith.dmg
       KEYCHAIN_PATH: build/signing.keychain-db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validate release metadata and Skills
         run: |
