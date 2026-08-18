@@ -2,147 +2,131 @@ import XCTest
 @testable import AudioSmith
 
 final class RollingTranscriptTests: XCTestCase {
-    func testStandardConfigurationUsesDerivedTwentyFivePercentOverlap() {
-        let configuration = RollingInferenceConfiguration.standard
-
-        XCTAssertEqual(configuration.baseEncoderWindowSeconds, 8)
-        XCTAssertEqual(configuration.refinementWindowSeconds, 8)
-        XCTAssertEqual(configuration.overlapSeconds, 2)
-        XCTAssertEqual(configuration.strideSeconds, 6)
-    }
-
-    func testSixteenSecondRefinementWindowDerivesFourSecondOverlap() {
-        let configuration = RollingInferenceConfiguration(
-            baseEncoderWindowSeconds: 8,
-            refinementWindowSeconds: 16
-        )
-
-        XCTAssertEqual(configuration.overlapSeconds, 4)
-        XCTAssertEqual(configuration.strideSeconds, 12)
-    }
-
-    func testOneRefinementWindowWaitsForFinalization() {
-        let end = 8 * 16_000
-
-        XCTAssertFalse(RollingWindowPlanner.shouldDecodeCheckpoint(
-            totalSamples: end,
-            checkpointEndSample: end
-        ))
-        XCTAssertTrue(RollingWindowPlanner.shouldDecodeCheckpoint(
-            totalSamples: end + 1,
-            checkpointEndSample: end
-        ))
-        XCTAssertEqual(
-            RollingWindowPlanner.finalWindow(
-                totalSamples: end,
-                lastCheckpointEndSample: nil,
-                nextWindowStartSample: nil
-            ),
-            .init(startSample: 0, endSample: end)
+    private func configuration(
+        silence: Double = 1.2,
+        minimumVoice: Double = 1.5,
+        overlap: Double = 0.4,
+        hardMaximum: Double = 30
+    ) -> PauseSegmentationConfiguration {
+        .init(
+            silenceConfirmationSeconds: silence,
+            minimumVoicedSeconds: minimumVoice,
+            boundaryOverlapSeconds: overlap,
+            hardMaximumSegmentSeconds: hardMaximum,
+            speechRMSFloor: 0.006
         )
     }
 
-    func testEveryShortBoundaryUsesOneWholeRequestFinalWindow() {
-        let checkpointEnd = 8 * 16_000
-        let durations = [
-            1,
-            8 * 16_000 - 1,
-            8 * 16_000,
-        ]
+    func testStandardConfigurationUsesNaturalPauseAndThirtySecondSafetyLimit() {
+        let configuration = PauseSegmentationConfiguration.standard
 
-        for totalSamples in durations {
-            XCTAssertFalse(RollingWindowPlanner.shouldDecodeCheckpoint(
-                totalSamples: totalSamples,
-                checkpointEndSample: checkpointEnd
-            ))
-            XCTAssertEqual(
-                RollingWindowPlanner.finalWindow(
-                    totalSamples: totalSamples,
-                    lastCheckpointEndSample: nil,
-                    nextWindowStartSample: nil
-                ),
-                .init(startSample: 0, endSample: totalSamples)
-            )
-        }
+        XCTAssertEqual(configuration.silenceConfirmationSeconds, 1.2)
+        XCTAssertEqual(configuration.minimumVoicedSeconds, 1.5)
+        XCTAssertEqual(configuration.boundaryOverlapSeconds, 0.4)
+        XCTAssertEqual(configuration.hardMaximumSegmentSeconds, 30)
     }
 
-    func testFinalTailRetainsOverlapAfterCheckpoint() {
-        XCTAssertEqual(
-            RollingWindowPlanner.finalWindow(
-                totalSamples: 12 * 16_000,
-                lastCheckpointEndSample: 8 * 16_000,
-                nextWindowStartSample: 6 * 16_000
-            ),
-            .init(startSample: 6 * 16_000, endSample: 12 * 16_000)
-        )
-    }
-
-    func testPauseAwareBoundaryPrefersNaturalPauseNearNominalCheckpoint() {
+    func testNaturalPauseClosesSegmentAfterOnePointTwoSeconds() {
         let sampleRate = 1_000
-        var samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
-        for index in 5_750..<6_050 { samples[index] = 0.001 }
-
-        let selection = RollingWindowBoundarySelector.select(
-            samples: samples,
-            transcript: "先介绍模型结构，然后讨论训练方法，最后说明推理。",
-            sampleRate: sampleRate,
-            minimumOverlapSamples: 2 * sampleRate
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
         )
+        let speech = Array(repeating: Float(0.10), count: 2 * sampleRate)
+        let silence = Array(repeating: Float(0.001), count: 1_200)
 
-        XCTAssertTrue(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 5_900, accuracy: 40)
+        let boundaries = detector.append(speech + silence)
+
+        XCTAssertEqual(boundaries.count, 1)
+        XCTAssertEqual(boundaries[0].reason, .naturalPause)
+        XCTAssertEqual(boundaries[0].segmentStartSample, 0)
+        XCTAssertEqual(boundaries[0].segmentEndSample, 2_800, accuracy: 20)
+        XCTAssertEqual(boundaries[0].nextSegmentStartSample, 2_400, accuracy: 20)
+        XCTAssertFalse(detector.hasUncommittedVoice)
     }
 
-    func testPauseAwareBoundaryFallsBackToNominalStrideWithoutPause() {
+    func testBriefPauseDoesNotSplitPhrase() {
         let sampleRate = 1_000
-        let samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
-
-        let selection = RollingWindowBoundarySelector.select(
-            samples: samples,
-            transcript: "continuous speech without a pause",
-            sampleRate: sampleRate,
-            minimumOverlapSamples: 2 * sampleRate
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
         )
+        let speech = Array(repeating: Float(0.10), count: 2 * sampleRate)
+        let briefPause = Array(repeating: Float(0.001), count: 800)
 
-        XCTAssertFalse(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 6 * sampleRate)
+        XCTAssertTrue(detector.append(speech + briefPause + speech).isEmpty)
+        XCTAssertTrue(detector.hasUncommittedVoice)
     }
 
-    func testPauseBeforeSearchRangeIsIgnored() {
+    func testShortUtteranceRemainsAvailableForFnReleaseInsteadOfBeingDiscarded() {
         let sampleRate = 1_000
-        var samples = Array(repeating: Float(0.20), count: 8 * sampleRate)
-        for index in 2_500..<3_000 { samples[index] = 0.001 }
-
-        let selection = RollingWindowBoundarySelector.select(
-            samples: samples,
-            transcript: "前半段有停顿，但后半段保持连续语音",
-            sampleRate: sampleRate,
-            minimumOverlapSamples: 2 * sampleRate
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
         )
 
-        XCTAssertFalse(selection.usedPause)
-        XCTAssertEqual(selection.offsetSamples, 6 * sampleRate)
+        XCTAssertTrue(detector.append(Array(repeating: Float(0.10), count: 700)).isEmpty)
+        XCTAssertTrue(detector.hasUncommittedVoice)
     }
 
-    func testAdaptiveFinalTailStartsAtSelectedBoundary() {
-        XCTAssertEqual(
-            RollingWindowPlanner.finalWindow(
-                totalSamples: 13 * 16_000,
-                lastCheckpointEndSample: 8 * 16_000,
-                nextWindowStartSample: 5 * 16_000
-            ),
-            .init(startSample: 5 * 16_000, endSample: 13 * 16_000)
+    func testTooLittleVoiceDoesNotCreateBackgroundSegment() {
+        let sampleRate = 1_000
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
         )
+        let shortSpeech = Array(repeating: Float(0.10), count: 1_000)
+        let silence = Array(repeating: Float(0.001), count: 1_500)
+
+        XCTAssertTrue(detector.append(shortSpeech + silence).isEmpty)
+        XCTAssertTrue(detector.hasUncommittedVoice)
     }
 
-    func testExactCompletedWindowDoesNotDecodeOverlapAgain() {
-        XCTAssertNil(
-            RollingWindowPlanner.finalWindow(
-                totalSamples: 8 * 16_000,
-                lastCheckpointEndSample: 8 * 16_000,
-                nextWindowStartSample: 6 * 16_000
-            )
+    func testContinuedSilenceDoesNotEmitRepeatedSegments() {
+        let sampleRate = 1_000
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
         )
+        let speech = Array(repeating: Float(0.10), count: 2 * sampleRate)
+        let firstSilence = Array(repeating: Float(0.001), count: 1_200)
+        let moreSilence = Array(repeating: Float(0.001), count: 2 * sampleRate)
+
+        XCTAssertEqual(detector.append(speech + firstSilence).count, 1)
+        XCTAssertTrue(detector.append(moreSilence).isEmpty)
+        XCTAssertFalse(detector.hasUncommittedVoice)
+    }
+
+    func testSafetyLimitUsesLowestEnergyPointNearEndOfContinuousSpeech() {
+        let sampleRate = 1_000
+        var detector = PauseSegmentDetector(
+            configuration: configuration(hardMaximum: 10),
+            sampleRate: sampleRate
+        )
+        var speech = Array(repeating: Float(0.10), count: 10 * sampleRate)
+        for index in 8_400..<8_600 { speech[index] = 0.007 }
+
+        let boundaries = detector.append(speech)
+
+        XCTAssertEqual(boundaries.count, 1)
+        XCTAssertEqual(boundaries[0].reason, .safetyLimit)
+        XCTAssertEqual(boundaries[0].segmentEndSample, 8_700, accuracy: 40)
+        XCTAssertEqual(boundaries[0].nextSegmentStartSample, 8_300, accuracy: 40)
+        XCTAssertTrue(detector.hasUncommittedVoice)
+    }
+
+    func testVoiceAfterPauseIsKeptAsFinalTailEvenBelowMinimumSegmentDuration() {
+        let sampleRate = 1_000
+        var detector = PauseSegmentDetector(
+            configuration: configuration(),
+            sampleRate: sampleRate
+        )
+        let speech = Array(repeating: Float(0.10), count: 2 * sampleRate)
+        let silence = Array(repeating: Float(0.001), count: 1_200)
+
+        XCTAssertEqual(detector.append(speech + silence).count, 1)
+        XCTAssertTrue(detector.append(Array(repeating: Float(0.10), count: 400)).isEmpty)
+        XCTAssertTrue(detector.hasUncommittedVoice)
     }
 
     func testShortFinalAudioIsPaddedToModelMinimumOnly() {
@@ -218,6 +202,26 @@ final class RollingTranscriptTests: XCTestCase {
         ])
 
         XCTAssertFalse(result.matchedEverySeam)
+    }
+
+    func testNaturalPauseJoinsIndependentClausesWithoutDemandingLexicalOverlap() {
+        let result = RollingTranscriptAssembler.assemble([
+            .init(
+                startSample: 0,
+                endSample: 32,
+                text: "第一句话已经自然结束。",
+                seam: .initial
+            ),
+            .init(
+                startSample: 28,
+                endSample: 64,
+                text: "Now continue with a different clause.",
+                seam: .naturalPause
+            )
+        ])
+
+        XCTAssertTrue(result.matchedEverySeam)
+        XCTAssertEqual(result.text, "第一句话已经自然结束。 Now continue with a different clause.")
     }
 
     func testNewerWindowCoveringSamePrefixReplacesEarlierHypothesis() {

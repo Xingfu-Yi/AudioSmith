@@ -9,7 +9,8 @@ flowchart LR
     Down["Push-to-talk down"] --> Snap["Target + mode + selected Skills snapshot"]
     Snap --> Capture["16kHz mono Float32 capture"]
     Capture --> Panel["Waveform-only NSPanel"]
-    Capture --> ASR["0.6B ASR: 8s windows, 2s overlap"]
+    Capture --> VAD["Pause detector: 1.2s silence"]
+    VAD --> ASR["0.6B ASR: natural phrases"]
     ASR --> Ledger["Whole raw transcript ledger"]
     Up["Push-to-talk up"] --> Tail["Finish real-length ASR tail"]
     ASR --> Tail
@@ -49,13 +50,15 @@ An event tap observes the selected physical modifier key. `Fn` is the default; r
 
 During recording, `Esc` cancels the entire request. During Professional finalization it marks the generation result unusable and pastes the complete ASR fallback as soon as the ASR tail is available; a late model result is ignored through the request UUID. Secure fields and invalid targets never receive simulated paste, but the final text remains on the clipboard.
 
-## ASR windows and short audio
+## Pause-segmented ASR and short audio
 
-The ASR model is the pinned `mlx-community/Qwen3-ASR-0.6B-8bit`. Audio is processed in eight-second windows with a nominal two-second overlap and six-second stride. After a completed window, punctuation provides only a coarse semantic hint. The actual boundary is selected from a measured low-energy pause of at least 120ms in the 50–87.5% search region near the 75% checkpoint. If no defensible pause exists, the stride remains exactly six seconds.
+The ASR model is the pinned `mlx-community/Qwen3-ASR-0.6B-8bit`. Application-level segmentation is driven by the waveform rather than a fixed timer. After a phrase accumulates at least 1.5 seconds of voiced audio, 1.2 seconds of continuous low energy confirms a natural boundary. The cut is centered inside the silence and retains 400ms of overlap, so both sides keep guard audio without clipping a boundary phoneme. The model's audio tower may still use its own internal encoder blocks; those blocks do not choose the application's sentence boundaries.
 
-All MLX ASR calls run serially on a dedicated queue. The realtime microphone callback only appends samples. Adjacent hypotheses use lexical longest-suffix/longest-prefix stitching that ignores case, spacing, and punctuation. A recovery decode is bounded to at most 12 seconds; the application does not re-run a complete long recording merely because a local seam is weak.
+A pause shorter than 1.2 seconds does not close a phrase. If speech continues without any qualifying pause, a 30-second safety limit selects the lowest-energy run in the final five seconds. This fallback is bounded rather than periodic: normal speech remains pause segmented, and speech-overlap stitching is needed only at a safety-limit boundary.
 
-For 0.5–8 seconds, ASR receives the true request length. A shorter voiced request is padded with trailing zeros only to the model's 0.5-second minimum. If voiced audio produces empty text, one and only one retry appends 250ms of silence. Pure silence is rejected without inference. Reported duration and stitch locations always use unpadded audio time.
+All MLX ASR calls run serially on a dedicated queue. The realtime microphone callback only appends samples. A completed natural phrase is decoded invisibly while capture continues, so release usually waits only for the final unfinished phrase. Natural-pause results are joined as independent clauses. Safety-limit overlaps use lexical longest-suffix/longest-prefix stitching that ignores case, spacing, and punctuation; a weak seam may trigger a recovery decode bounded to at most 12 seconds. The application never re-runs a complete long recording merely because one local seam is weak.
+
+On key release, any unfinished voiced tail is decoded at its true length, even when it is shorter than the 1.5-second automatic-segmentation minimum. A request below the model's 0.5-second minimum is padded with trailing zeros only to that minimum. If voiced audio produces empty text, one and only one retry appends 250ms of silence. Pure silence is rejected without inference. If the user releases during silence after a phrase was already decoded, the silent tail is not decoded again. Reported duration and stitch locations always use unpadded audio time.
 
 The five-minute request limit bounds capture. At 16kHz Float32, retaining a five-minute waveform for tail and local recovery is about 19.2MB. It is released after completion or cancellation.
 

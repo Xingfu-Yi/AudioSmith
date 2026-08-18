@@ -6,7 +6,7 @@ This document separates observed results, current product configuration, and rel
 
 - ASR: `mlx-community/Qwen3-ASR-0.6B-8bit`, revision `89e96d92ba34aca20b3e29fb10cc284097d1219f`
 - Professional refiner: `Qwen/Qwen3-1.7B-MLX-4bit`, revision `21457c6f51ed54a7c16e988c0844db973815c137`
-- ASR decode: greedy, eight-second windows, nominal two-second overlap
+- ASR decode: greedy, natural-pause segmentation with a 30-second safety limit
 - Refiner: thinking disabled, one whole-transcript call after release
 - Development hardware: M1 Pro with 32GB unified memory
 
@@ -25,9 +25,9 @@ These rows measured the previous 1.7B 8-bit ASR-only path. They are retained for
 
 - Fast mode: 0.6B ASR and generic deterministic cleanup; refiner memory is unloaded.
 - Professional mode: 0.6B ASR followed by one 1.7B whole-transcript refinement with selected Skills.
-- Short audio: true length at 0.5–8 seconds; shorter voiced input pads only to 0.5 seconds; one empty-result retry adds 250ms silence.
-- Long audio: eight-second ASR windows, two-second nominal overlap, six-second nominal stride, 120ms+ pause-aware boundaries.
-- Local seam recovery: at most 12 seconds; no whole-recording re-decode.
+- Short audio and final tails: true length; input below the model minimum pads only to 0.5 seconds; one empty-result retry adds 250ms silence.
+- Long audio: 1.2-second natural-pause boundaries after at least 1.5 seconds of voice, with 400ms boundary overlap; uninterrupted speech has a 30-second safety limit.
+- Local seam recovery: only safety-limit speech overlaps may invoke it, at most 12 seconds; no whole-recording re-decode.
 - UI: waveform while recording; time-driven progress ring after release; no live transcript.
 - Session limit: five minutes.
 - Warning: 4.7GB physical footprint; release blocker: over 5.0GB.

@@ -17,220 +17,240 @@ struct LongContextTranscription: Sendable {
     }
 }
 
-/// The model's native encoder block and the app-level refinement window are the
-/// only independent timing parameters. Twenty-five percent is the nominal
-/// overlap; runtime window boundaries may move to a nearby clause pause while
-/// retaining a safe minimum overlap.
-struct RollingInferenceConfiguration: Equatable, Sendable {
-    static let overlapFraction = 0.25
-    static let standard = RollingInferenceConfiguration(
-        baseEncoderWindowSeconds: 8,
-        refinementWindowSeconds: 8
+/// Audio Smith closes ordinary ASR segments only at natural pauses. The native
+/// audio tower can still encode a long request in internal blocks, but no
+/// application-level eight-second timer decides where a sentence is cut.
+struct PauseSegmentationConfiguration: Equatable, Sendable {
+    static let standard = PauseSegmentationConfiguration(
+        silenceConfirmationSeconds: 1.2,
+        minimumVoicedSeconds: 1.5,
+        boundaryOverlapSeconds: 0.4,
+        hardMaximumSegmentSeconds: 30,
+        speechRMSFloor: 0.006
     )
 
-    let baseEncoderWindowSeconds: Double
-    let refinementWindowSeconds: Double
+    let silenceConfirmationSeconds: Double
+    let minimumVoicedSeconds: Double
+    let boundaryOverlapSeconds: Double
+    let hardMaximumSegmentSeconds: Double
+    let speechRMSFloor: Float
 
-    init(baseEncoderWindowSeconds: Double, refinementWindowSeconds: Double) {
-        precondition(baseEncoderWindowSeconds > 0)
-        precondition(refinementWindowSeconds >= baseEncoderWindowSeconds)
-        self.baseEncoderWindowSeconds = baseEncoderWindowSeconds
-        self.refinementWindowSeconds = refinementWindowSeconds
-    }
-
-    var overlapSeconds: Double {
-        refinementWindowSeconds * Self.overlapFraction
-    }
-
-    var strideSeconds: Double {
-        refinementWindowSeconds - overlapSeconds
-    }
-}
-
-struct RollingFinalWindow: Equatable, Sendable {
-    let startSample: Int
-    let endSample: Int
-}
-
-enum RollingWindowPlanner {
-    /// A checkpoint is intentionally delayed until audio extends beyond its
-    /// right edge. This keeps requests up to and including one refinement
-    /// window on the single-pass finalization path.
-    static func shouldDecodeCheckpoint(totalSamples: Int, checkpointEndSample: Int) -> Bool {
-        totalSamples > checkpointEndSample
-    }
-
-    static func finalWindow(
-        totalSamples: Int,
-        lastCheckpointEndSample: Int?,
-        nextWindowStartSample: Int?
-    ) -> RollingFinalWindow? {
-        guard totalSamples > 0 else { return nil }
-        if let lastCheckpointEndSample,
-           totalSamples <= lastCheckpointEndSample {
-            return nil
-        }
-        let startSample = min(totalSamples, max(0, nextWindowStartSample ?? 0))
-        guard totalSamples > startSample else { return nil }
-        return .init(
-            startSample: startSample,
-            endSample: totalSamples
-        )
+    init(
+        silenceConfirmationSeconds: Double,
+        minimumVoicedSeconds: Double,
+        boundaryOverlapSeconds: Double,
+        hardMaximumSegmentSeconds: Double,
+        speechRMSFloor: Float
+    ) {
+        precondition(silenceConfirmationSeconds > 0)
+        precondition(minimumVoicedSeconds >= 0)
+        precondition(boundaryOverlapSeconds >= 0)
+        precondition(hardMaximumSegmentSeconds > silenceConfirmationSeconds)
+        precondition(speechRMSFloor > 0)
+        self.silenceConfirmationSeconds = silenceConfirmationSeconds
+        self.minimumVoicedSeconds = minimumVoicedSeconds
+        self.boundaryOverlapSeconds = boundaryOverlapSeconds
+        self.hardMaximumSegmentSeconds = hardMaximumSegmentSeconds
+        self.speechRMSFloor = speechRMSFloor
     }
 }
 
-struct RollingBoundarySelection: Equatable, Sendable {
-    let offsetSamples: Int
-    let usedPause: Bool
+enum PauseSegmentBoundaryReason: Equatable, Sendable {
+    case naturalPause
+    case safetyLimit
 }
 
-/// Selects the next refinement-window start near the nominal 75% checkpoint.
-/// Punctuation supplies only a coarse semantic hint because Qwen's plain ASR
-/// result has no word timestamps. The actual cut must land inside a measured
-/// low-energy pause, which prevents character-count estimates from clipping
-/// speech when the speaker changes pace.
-enum RollingWindowBoundarySelector {
-    static let minimumSearchFraction = 0.50
-    static let targetFraction = 0.75
-    static let minimumPauseSeconds = 0.12
+struct PauseSegmentBoundary: Equatable, Sendable {
+    let segmentStartSample: Int
+    let segmentEndSample: Int
+    let nextSegmentStartSample: Int
+    let reason: PauseSegmentBoundaryReason
+}
 
-    static func select(
-        samples: [Float],
-        transcript: String,
-        sampleRate: Int,
-        minimumOverlapSamples: Int
-    ) -> RollingBoundarySelection {
-        guard !samples.isEmpty, sampleRate > 0 else {
-            return .init(offsetSamples: 0, usedPause: false)
-        }
+/// Stateful, frame-based pause detector used before ASR. It deliberately does
+/// not use recognized punctuation: the audio boundary is chosen before the
+/// corresponding model request exists. A thirty-second limit is only a safety
+/// valve for uninterrupted speech, never the normal segmentation cadence.
+struct PauseSegmentDetector: Sendable {
+    private struct Frame: Sendable {
+        let start: Int
+        let end: Int
+        let rms: Float
+        let voiced: Bool
+    }
 
-        let lowerBound = min(
-            samples.count,
-            max(0, Int((Double(samples.count) * minimumSearchFraction).rounded()))
+    private let configuration: PauseSegmentationConfiguration
+    private let sampleRate: Int
+    private let frameSamples: Int
+    private let silenceConfirmationSamples: Int
+    private let minimumVoicedSamples: Int
+    private let overlapSamples: Int
+    private let hardMaximumSamples: Int
+    private let safetySearchSamples: Int
+
+    private var pendingSamples: [Float] = []
+    private var pendingOffset = 0
+    private var analyzedSampleCount = 0
+    private var segmentStartSample = 0
+    private var voicedSampleCount = 0
+    private var silenceStartSample: Int?
+    private var recentFrames: [Frame] = []
+
+    init(
+        configuration: PauseSegmentationConfiguration = .standard,
+        sampleRate: Int = 16_000
+    ) {
+        precondition(sampleRate > 0)
+        self.configuration = configuration
+        self.sampleRate = sampleRate
+        self.frameSamples = max(1, Int((0.020 * Double(sampleRate)).rounded()))
+        self.silenceConfirmationSamples = Int(
+            (configuration.silenceConfirmationSeconds * Double(sampleRate)).rounded()
         )
-        let upperBound = max(lowerBound, samples.count - max(0, minimumOverlapSamples))
-        let nominalTarget = min(
-            upperBound,
-            max(lowerBound, Int((Double(samples.count) * targetFraction).rounded()))
+        self.minimumVoicedSamples = Int(
+            (configuration.minimumVoicedSeconds * Double(sampleRate)).rounded()
         )
-        guard upperBound > lowerBound else {
-            return .init(offsetSamples: nominalTarget, usedPause: false)
-        }
-
-        let frameSize = max(1, Int((Double(sampleRate) * 0.020).rounded()))
-        let hopSize = max(1, Int((Double(sampleRate) * 0.010).rounded()))
-        let minimumPauseSamples = max(
-            frameSize,
-            Int((Double(sampleRate) * minimumPauseSeconds).rounded())
+        self.overlapSamples = Int(
+            (configuration.boundaryOverlapSeconds * Double(sampleRate)).rounded()
         )
+        self.hardMaximumSamples = Int(
+            (configuration.hardMaximumSegmentSeconds * Double(sampleRate)).rounded()
+        )
+        self.safetySearchSamples = min(
+            hardMaximumSamples / 3,
+            5 * sampleRate
+        )
+        pendingSamples.reserveCapacity(frameSamples * 4)
+    }
 
-        var frames: [(start: Int, end: Int, rms: Double)] = []
-        var frameStart = lowerBound
-        while frameStart < upperBound {
-            let frameEnd = min(upperBound, frameStart + frameSize)
-            guard frameEnd > frameStart else { break }
-            var energy = 0.0
-            for sample in samples[frameStart..<frameEnd] {
-                let value = Double(sample)
-                energy += value * value
+    var hasUncommittedVoice: Bool { voicedSampleCount > 0 }
+
+    mutating func append(_ samples: [Float]) -> [PauseSegmentBoundary] {
+        guard !samples.isEmpty else { return [] }
+        pendingSamples.append(contentsOf: samples)
+        var boundaries: [PauseSegmentBoundary] = []
+
+        while pendingSamples.count - pendingOffset >= frameSamples {
+            let frameStart = analyzedSampleCount
+            let frameEnd = frameStart + frameSamples
+            let localEnd = pendingOffset + frameSamples
+            let frameSlice = pendingSamples[pendingOffset..<localEnd]
+            var energy: Float = 0
+            for sample in frameSlice { energy += sample * sample }
+            let rms = sqrt(energy / Float(frameSamples))
+            let voiced = rms > configuration.speechRMSFloor
+            let frame = Frame(start: frameStart, end: frameEnd, rms: rms, voiced: voiced)
+            recentFrames.append(frame)
+            pendingOffset = localEnd
+            analyzedSampleCount = frameEnd
+
+            if voiced {
+                voicedSampleCount += frameSamples
+                silenceStartSample = nil
+            } else if voicedSampleCount > 0, silenceStartSample == nil {
+                silenceStartSample = frameStart
             }
-            frames.append((
-                start: frameStart,
-                end: frameEnd,
-                rms: sqrt(energy / Double(frameEnd - frameStart))
-            ))
-            frameStart += hopSize
-        }
 
-        guard !frames.isEmpty else {
-            return .init(offsetSamples: nominalTarget, usedPause: false)
-        }
-
-        let sortedLevels = frames.map(\.rms).sorted()
-        let quietLevel = sortedLevels[0]
-        let speechIndex = min(
-            sortedLevels.count - 1,
-            Int((Double(sortedLevels.count - 1) * 0.75).rounded())
-        )
-        let speechLevel = sortedLevels[speechIndex]
-        let separation = speechLevel - quietLevel
-
-        // A flat envelope does not contain a defensible pause. Falling back to
-        // the nominal checkpoint is safer than cutting at a quiet phoneme.
-        guard speechLevel >= 0.006,
-              separation >= max(0.002, speechLevel * 0.18) else {
-            return .init(offsetSamples: nominalTarget, usedPause: false)
-        }
-        let quietThreshold = quietLevel + separation * 0.30
-
-        var pauses: [(center: Int, duration: Int)] = []
-        var runStart: Int?
-        var runEnd = lowerBound
-
-        func finishRun() {
-            guard let start = runStart else { return }
-            let duration = runEnd - start
-            if duration >= minimumPauseSamples {
-                pauses.append((center: start + duration / 2, duration: duration))
+            if let silenceStartSample,
+               voicedSampleCount >= minimumVoicedSamples,
+               frameEnd - silenceStartSample >= silenceConfirmationSamples {
+                let cutSample = silenceStartSample + silenceConfirmationSamples / 2
+                let halfOverlap = overlapSamples / 2
+                let boundary = PauseSegmentBoundary(
+                    segmentStartSample: segmentStartSample,
+                    segmentEndSample: min(frameEnd, cutSample + halfOverlap),
+                    nextSegmentStartSample: max(segmentStartSample, cutSample - halfOverlap),
+                    reason: .naturalPause
+                )
+                boundaries.append(boundary)
+                resetSegmentState(after: boundary.nextSegmentStartSample)
+            } else if frameEnd - segmentStartSample >= hardMaximumSamples {
+                let boundary = safetyBoundary(at: frameEnd)
+                boundaries.append(boundary)
+                resetSegmentState(after: boundary.nextSegmentStartSample)
             }
-            runStart = nil
+
+            trimRecentFrames()
         }
 
-        for frame in frames {
-            if frame.rms <= quietThreshold {
-                if runStart == nil { runStart = frame.start }
-                runEnd = frame.end
-            } else {
-                finishRun()
-            }
-        }
-        finishRun()
+        compactPendingSamplesIfNeeded()
+        return boundaries
+    }
 
-        guard !pauses.isEmpty else {
-            return .init(offsetSamples: nominalTarget, usedPause: false)
-        }
+    mutating func reset() {
+        pendingSamples.removeAll(keepingCapacity: true)
+        pendingOffset = 0
+        analyzedSampleCount = 0
+        segmentStartSample = 0
+        voicedSampleCount = 0
+        silenceStartSample = nil
+        recentFrames.removeAll(keepingCapacity: true)
+    }
 
-        let maximumFraction = Double(upperBound) / Double(samples.count)
-        let punctuationFraction = punctuationTargetFraction(
-            in: transcript,
-            maximumFraction: maximumFraction
+    private func safetyBoundary(at frameEnd: Int) -> PauseSegmentBoundary {
+        let lowerBound = max(
+            segmentStartSample + hardMaximumSamples - safetySearchSamples,
+            segmentStartSample + overlapSamples
         )
-        let semanticTarget = punctuationFraction.map {
-            Int((Double(samples.count) * ($0 * 0.65 + targetFraction * 0.35)).rounded())
-        } ?? nominalTarget
-
-        let selected = pauses.min { left, right in
-            let leftScore = abs(left.center - semanticTarget)
-                + abs(left.center - nominalTarget) / 4
-            let rightScore = abs(right.center - semanticTarget)
-                + abs(right.center - nominalTarget) / 4
-            if leftScore == rightScore { return left.duration > right.duration }
-            return leftScore < rightScore
-        }!
-
-        return .init(
-            offsetSamples: min(upperBound, max(lowerBound, selected.center)),
-            usedPause: true
+        let upperBound = max(lowerBound, frameEnd - overlapSamples / 2)
+        let candidates = recentFrames.filter {
+            $0.start >= lowerBound && $0.end <= upperBound
+        }
+        let target = frameEnd - safetySearchSamples / 2
+        let cutSample: Int
+        if let minimumRMS = candidates.map(\.rms).min() {
+            let quietThreshold = minimumRMS + max(0.0005, minimumRMS * 0.10)
+            var runs: [(start: Int, end: Int)] = []
+            for frame in candidates where frame.rms <= quietThreshold {
+                if let last = runs.last, frame.start <= last.end + frameSamples {
+                    runs[runs.count - 1].end = frame.end
+                } else {
+                    runs.append((start: frame.start, end: frame.end))
+                }
+            }
+            let selected = runs.min { left, right in
+                abs((left.start + left.end) / 2 - target)
+                    < abs((right.start + right.end) / 2 - target)
+            }
+            cutSample = selected.map { ($0.start + $0.end) / 2 } ?? upperBound
+        } else {
+            cutSample = upperBound
+        }
+        let halfOverlap = overlapSamples / 2
+        return PauseSegmentBoundary(
+            segmentStartSample: segmentStartSample,
+            segmentEndSample: min(frameEnd, cutSample + halfOverlap),
+            nextSegmentStartSample: max(segmentStartSample, cutSample - halfOverlap),
+            reason: .safetyLimit
         )
     }
 
-    static func punctuationTargetFraction(
-        in transcript: String,
-        maximumFraction: Double
-    ) -> Double? {
-        let units = transcript.filter { !$0.isWhitespace }
-        guard units.count >= 2 else { return nil }
+    private mutating func resetSegmentState(after nextStart: Int) {
+        segmentStartSample = nextStart
+        let retained = recentFrames.filter { $0.end > nextStart }
+        voicedSampleCount = retained.reduce(into: 0) { total, frame in
+            guard frame.voiced else { return }
+            total += max(0, frame.end - max(frame.start, nextStart))
+        }
+        if let lastVoiced = retained.last(where: \.voiced) {
+            silenceStartSample = lastVoiced.end < analyzedSampleCount ? lastVoiced.end : nil
+        } else {
+            silenceStartSample = nil
+        }
+        recentFrames = retained
+    }
 
-        let denominator = Double(units.count - 1)
-        return units.enumerated()
-            .compactMap { index, character -> Double? in
-                guard character.isClauseBoundaryPunctuation else { return nil }
-                let fraction = Double(index) / denominator
-                guard fraction >= minimumSearchFraction,
-                      fraction <= maximumFraction else { return nil }
-                return fraction
-            }
-            .min { abs($0 - targetFraction) < abs($1 - targetFraction) }
+    private mutating func trimRecentFrames() {
+        let keepAfter = max(segmentStartSample, analyzedSampleCount - safetySearchSamples - overlapSamples)
+        if let first = recentFrames.firstIndex(where: { $0.end > keepAfter }), first > 0 {
+            recentFrames.removeFirst(first)
+        }
+    }
+
+    private mutating func compactPendingSamplesIfNeeded() {
+        guard pendingOffset >= frameSamples * 8 else { return }
+        pendingSamples.removeFirst(pendingOffset)
+        pendingOffset = 0
     }
 }
 
@@ -257,9 +277,28 @@ enum ASRDecodeBudget {
 }
 
 struct RollingTranscriptWindow: Equatable, Sendable {
+    enum Seam: Equatable, Sendable {
+        case initial
+        case naturalPause
+        case overlappingSpeech
+    }
+
     let startSample: Int
     let endSample: Int
     let text: String
+    let seam: Seam
+
+    init(
+        startSample: Int,
+        endSample: Int,
+        text: String,
+        seam: Seam = .overlappingSpeech
+    ) {
+        self.startSample = startSample
+        self.endSample = endSample
+        self.text = text
+        self.seam = seam
+    }
 }
 
 struct RollingTranscriptAssembly: Equatable, Sendable {
@@ -292,7 +331,9 @@ enum RollingTranscriptAssembler {
                 continue
             }
 
-            if window.startSample < previous.endSample {
+            if window.seam == .naturalPause {
+                text = join(text, window.text)
+            } else if window.startSample < previous.endSample {
                 let merged = mergeOverlappingText(text, window.text)
                 text = merged.text
                 matchedEverySeam = matchedEverySeam && merged.matched
@@ -402,15 +443,15 @@ private extension Character {
     }
 }
 
-/// Owns Qwen's waveform-only rolling inference path. The audio tower still uses
-/// its native ~8-second blocks internally. The app advances by a nominal six
-/// seconds (two-second overlap), preferring a nearby clause pause while
-/// retaining enough overlap for deterministic stitching.
+/// Owns Qwen's waveform-only pause-segmented inference path. Completed phrases
+/// are decoded invisibly while the user is still speaking; the UI continues to
+/// show only a waveform and publishes text once after Fn is released.
 @MainActor
 final class QwenStreamingEngine {
     private var model: Qwen3ASRModel?
     private nonisolated let feeder = RollingSessionFeeder()
-    private let configuration = RollingInferenceConfiguration.standard
+    private let configuration = PauseSegmentationConfiguration.standard
+    private let nativeEncoderWindowSeconds = 8.0
 
     var isLoaded: Bool { model != nil }
 
@@ -464,7 +505,12 @@ final class QwenStreamingEngine {
         guard let result = await feeder.finish() else { return nil }
         let assembly = RollingTranscriptAssembler.assemble(
             result.windows.map {
-                .init(startSample: $0.startSample, endSample: $0.endSample, text: $0.text)
+                .init(
+                    startSample: $0.startSample,
+                    endSample: $0.endSample,
+                    text: $0.text,
+                    seam: $0.seam
+                )
             }
         )
         return LongContextTranscription(
@@ -477,7 +523,7 @@ final class QwenStreamingEngine {
                 : 0,
             peakMemoryGB: result.peakMemoryGB,
             encodedWindowCount: Int(ceil(
-                result.audioSeconds / configuration.baseEncoderWindowSeconds
+                result.audioSeconds / nativeEncoderWindowSeconds
             )),
             checkpointCount: result.checkpointCount
         )
@@ -495,7 +541,7 @@ final class QwenStreamingEngine {
         let modelBox = UnsafeSendableBox(model)
         let audioSeconds = Double(boundedSamples.count) / 16_000.0
         let maxTokens = ASRDecodeBudget.maxTokens(sampleCount: boundedSamples.count)
-        let baseWindowSeconds = configuration.baseEncoderWindowSeconds
+        let baseWindowSeconds = nativeEncoderWindowSeconds
 
         return await Task.detached(priority: .userInitiated) {
             let output = modelBox.value.generate(
@@ -534,6 +580,7 @@ private struct DecodedRollingWindow: Sendable {
     let startSample: Int
     let endSample: Int
     let text: String
+    let seam: RollingTranscriptWindow.Seam
     let decodeSeconds: Double
     let generatedTokens: Int
     let peakMemoryGB: Double
@@ -553,17 +600,16 @@ private struct RollingSessionResult: Sendable {
 private final class RollingInferenceSession: @unchecked Sendable {
     private let model: Qwen3ASRModel
     private let context: String
-    private let configuration: RollingInferenceConfiguration
+    private let configuration: PauseSegmentationConfiguration
     private let sampleRate = 16_000
-    private let refinementWindowSamples: Int
-    private let minimumOverlapSamples: Int
 
     private var active = true
     private var buffer: [Float] = []
     private var bufferStartSample = 0
     private var totalSamples = 0
-    private var nextWindowStartSample = 0
-    private var nextCheckpointEndSample: Int
+    private var nextSegmentStartSample = 0
+    private var nextSegmentSeam = RollingTranscriptWindow.Seam.initial
+    private var detector: PauseSegmentDetector
     private var decodedWindows: [DecodedRollingWindow] = []
     private var totalDecodeSeconds = 0.0
     private var totalGeneratedTokens = 0
@@ -574,21 +620,16 @@ private final class RollingInferenceSession: @unchecked Sendable {
     init(
         model: Qwen3ASRModel,
         context: String,
-        configuration: RollingInferenceConfiguration
+        configuration: PauseSegmentationConfiguration
     ) {
         self.model = model
         self.context = context
         self.configuration = configuration
-        self.refinementWindowSamples = Int(
-            (configuration.refinementWindowSeconds * Double(sampleRate)).rounded()
+        self.detector = PauseSegmentDetector(
+            configuration: configuration,
+            sampleRate: sampleRate
         )
-        // Keep at least 25% of the native encoder block (2 seconds by default)
-        // even when a punctuation-aligned pause lies near the window's end.
-        self.minimumOverlapSamples = Int(
-            (configuration.baseEncoderWindowSeconds * 0.25 * Double(sampleRate)).rounded()
-        )
-        self.nextCheckpointEndSample = refinementWindowSamples
-        buffer.reserveCapacity(refinementWindowSamples + 4_096)
+        buffer.reserveCapacity(Int(configuration.hardMaximumSegmentSeconds * Double(sampleRate)))
     }
 
     func feedAudio(samples: [Float]) {
@@ -596,32 +637,25 @@ private final class RollingInferenceSession: @unchecked Sendable {
         buffer.append(contentsOf: samples)
         totalSamples += samples.count
 
-        while RollingWindowPlanner.shouldDecodeCheckpoint(
-            totalSamples: totalSamples,
-            checkpointEndSample: nextCheckpointEndSample
-        ) {
-            let start = nextWindowStartSample
-            guard let audio = self.samples(from: start, to: nextCheckpointEndSample) else { break }
-            let decodedWindow = decode(
-                audio,
-                startSample: start,
-                endSample: nextCheckpointEndSample,
+        for boundary in detector.append(samples) {
+            guard let segmentAudio = self.samples(
+                from: boundary.segmentStartSample,
+                to: boundary.segmentEndSample
+            ), !segmentAudio.isEmpty else { continue }
+            appendWithLocalSeamRepair(decode(
+                segmentAudio,
+                startSample: boundary.segmentStartSample,
+                endSample: boundary.segmentEndSample,
+                seam: nextSegmentSeam,
                 isFinal: false
-            )
+            ))
             checkpointCount += 1
-            appendWithLocalSeamRepair(decodedWindow)
-
-            let boundary = RollingWindowBoundarySelector.select(
-                samples: audio,
-                transcript: decodedWindow.text,
-                sampleRate: sampleRate,
-                minimumOverlapSamples: minimumOverlapSamples
-            )
-            nextWindowStartSample = start + boundary.offsetSamples
-            nextCheckpointEndSample = nextWindowStartSample + refinementWindowSamples
-            // Retain four seconds behind the next start so a failed seam can
-            // be repaired with at most a twelve-second local union window.
-            discardSamples(before: max(0, nextWindowStartSample - 4 * sampleRate))
+            nextSegmentStartSample = boundary.nextSegmentStartSample
+            nextSegmentSeam = boundary.reason == .naturalPause
+                ? .naturalPause
+                : .overlappingSpeech
+            // A local seam repair needs at most twelve seconds of prior audio.
+            discardSamples(before: max(0, nextSegmentStartSample - 12 * sampleRate))
         }
     }
 
@@ -629,15 +663,10 @@ private final class RollingInferenceSession: @unchecked Sendable {
         guard active, totalSamples > 0 else { return nil }
         active = false
 
-        if let finalWindow = RollingWindowPlanner.finalWindow(
-            totalSamples: totalSamples,
-            lastCheckpointEndSample: decodedWindows.last?.endSample,
-            nextWindowStartSample: decodedWindows.isEmpty ? nil : nextWindowStartSample
-        ) {
-            guard let audio = samples(
-                from: finalWindow.startSample,
-                to: finalWindow.endSample
-            ), !audio.isEmpty else {
+        let shouldDecodeTail = decodedWindows.isEmpty || detector.hasUncommittedVoice
+        if shouldDecodeTail, totalSamples > nextSegmentStartSample {
+            guard let audio = samples(from: nextSegmentStartSample, to: totalSamples),
+                  !audio.isEmpty else {
                 reset()
                 return nil
             }
@@ -650,8 +679,9 @@ private final class RollingInferenceSession: @unchecked Sendable {
             )
             appendWithLocalSeamRepair(decode(
                 inferenceAudio,
-                startSample: finalWindow.startSample,
-                endSample: finalWindow.endSample,
+                startSample: nextSegmentStartSample,
+                endSample: totalSamples,
+                seam: nextSegmentSeam,
                 isFinal: true
             ))
         }
@@ -679,9 +709,9 @@ private final class RollingInferenceSession: @unchecked Sendable {
         _ samples: [Float],
         startSample: Int,
         endSample: Int,
+        seam: RollingTranscriptWindow.Seam,
         isFinal: Bool
     ) -> DecodedRollingWindow {
-        let audioSeconds = Double(samples.count) / Double(sampleRate)
         let maxTokens = ASRDecodeBudget.maxTokens(
             sampleCount: samples.count,
             sampleRate: sampleRate
@@ -692,7 +722,9 @@ private final class RollingInferenceSession: @unchecked Sendable {
             temperature: 0,
             context: context,
             language: nil,
-            chunkDuration: Float(configuration.refinementWindowSeconds),
+            // Application segmentation already supplied one complete phrase.
+            // Keep MLXAudio from imposing another short app-level chunk here.
+            chunkDuration: Float(configuration.hardMaximumSegmentSeconds),
             minChunkDuration: 0.5,
             repetitionPenalty: 1,
             repetitionContextSize: 32
@@ -702,6 +734,7 @@ private final class RollingInferenceSession: @unchecked Sendable {
             startSample: startSample,
             endSample: endSample,
             text: output.text,
+            seam: seam,
             decodeSeconds: output.totalTime,
             generatedTokens: output.generationTokens,
             peakMemoryGB: output.peakMemoryUsage,
@@ -721,13 +754,27 @@ private final class RollingInferenceSession: @unchecked Sendable {
             return
         }
 
+        // Natural-pause overlap consists primarily of silence and exists only
+        // to protect boundary phonemes. It should be joined, not treated as a
+        // failed lexical seam that triggers an unnecessary second decode.
+        guard window.seam == .overlappingSpeech else {
+            decodedWindows.append(window)
+            return
+        }
+
         let seam = RollingTranscriptAssembler.assemble([
             .init(
                 startSample: previous.startSample,
                 endSample: previous.endSample,
-                text: previous.text
+                text: previous.text,
+                seam: previous.seam
             ),
-            .init(startSample: window.startSample, endSample: window.endSample, text: window.text),
+            .init(
+                startSample: window.startSample,
+                endSample: window.endSample,
+                text: window.text,
+                seam: window.seam
+            ),
         ])
         guard !seam.matchedEverySeam else {
             decodedWindows.append(window)
@@ -747,6 +794,7 @@ private final class RollingInferenceSession: @unchecked Sendable {
             repairAudio,
             startSample: repairStart,
             endSample: window.endSample,
+            seam: .overlappingSpeech,
             isFinal: window.isFinal
         ))
     }
@@ -773,6 +821,9 @@ private final class RollingInferenceSession: @unchecked Sendable {
         measuredPeakMemoryGB = 0
         finalDecodeSeconds = 0
         checkpointCount = 0
+        detector.reset()
+        nextSegmentStartSample = 0
+        nextSegmentSeam = .initial
         Memory.clearCache()
     }
 }

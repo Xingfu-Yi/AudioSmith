@@ -14,7 +14,7 @@
 
 ## Developer Preview
 
-Audio Smith is an early source preview, not a finished binary release. It uses Qwen3-ASR-0.6B 8-bit for bounded-window recognition and, by default, one Qwen3-1.7B MLX 4-bit whole-transcript refinement pass. The goals are mixed Chinese/English speech, a strict 5GB memory release gate, and standard Markdown Skills for specialist terminology.
+Audio Smith is an early source preview, not a finished binary release. It uses Qwen3-ASR-0.6B 8-bit for pause-segmented recognition and, by default, one Qwen3-1.7B MLX 4-bit whole-transcript refinement pass. The goals are mixed Chinese/English speech, a strict 5GB memory release gate, and standard Markdown Skills for specialist terminology.
 
 The source builds and the core unit tests pass on the development Mac. The project has not yet completed its 24GB-device, five-minute long-context, public accuracy, signing, or notarization gates. There is therefore no download button, tag, or DMG yet, and this README does not claim accuracy that the public benchmark has not established.
 
@@ -63,12 +63,12 @@ AUDIO_SMITH_REFINER_MODEL_PATH=/absolute/path/to/Qwen3-1.7B-MLX-4bit \
 ## How It Works
 
 1. Pressing the selected push-to-talk key snapshots the foreground app, mode, and selected Skills, then starts 16kHz mono capture. The overlay shows only a waveform and elapsed time, so provisional text cannot distract the speaker.
-2. Qwen3-ASR-0.6B decodes eight-second audio windows with a nominal two-second overlap and six-second stride. A measured 120ms+ pause near the 75% checkpoint may adjust a boundary. Windows are serialized; no LLM refinement runs while recording.
-3. Inputs from 0.5–8 seconds use their real duration. Shorter voiced input is padded only to 0.5 seconds. Empty voiced output is retried once with 250ms of trailing silence, while seam recovery is capped at 12 seconds rather than re-decoding a full long recording.
+2. Qwen3-ASR-0.6B closes a phrase after about 1.2 seconds of measured silence, once that phrase contains at least 1.5 seconds of voiced audio. A 400ms boundary overlap protects phonemes. Completed phrases are decoded serially and invisibly while recording; no LLM refinement runs at that stage.
+3. Brief pauses do not split a phrase. Uninterrupted speech uses a 30-second safety limit and cuts near the lowest-energy point in the final five seconds. On release, every unfinished voiced tail uses its real duration; input below the model minimum is padded only to 0.5 seconds. Empty voiced output is retried once with 250ms of trailing silence, while weak speech-overlap seams use at most a 12-second local recovery decode.
 4. On release, Professional mode sends the complete stitched ASR transcript and the immutable Skill snapshot to Qwen3-1.7B exactly once. The result is accepted only after fidelity, edit-distance, number, URL, and email checks; otherwise the complete ASR text is used. Fast mode skips both the refiner and Skills.
 5. Deterministic spacing and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
 
-`Esc` cancels a recording. During Professional finalization it skips the LLM and immediately falls back to the complete ASR transcript as soon as the tail is ready. The default is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, windowing, and memory gates.
+`Esc` cancels a recording. During Professional finalization it skips the LLM and immediately falls back to the complete ASR transcript as soon as the tail is ready. The default is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, pause segmentation, and memory gates.
 
 ## Skills
 
@@ -134,7 +134,7 @@ The generated Xcode project and `Package.resolved` are committed. MLXAudio Swift
 
 ## Roadmap
 
-- Validate five-minute rolling-window dictation and the 5GB footprint gate on M1 Pro 32GB and at least one 24GB Apple Silicon Mac.
+- Validate five-minute pause-segmented dictation and the 5GB footprint gate on M1 Pro 32GB and at least one 24GB Apple Silicon Mac.
 - Publish Chinese, English, and code-switched accuracy comparisons against BF16.
 - Complete accessibility, secure-field, multi-display, full-screen, sleep/wake, and target-app testing.
 - Finish iconography, third-party license review, Developer ID signing, notarization, and a verified DMG.

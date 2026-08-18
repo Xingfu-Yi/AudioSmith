@@ -12,13 +12,14 @@
 ## ASR invariants
 
 - recording displays only waveform and elapsed time
-- 0.6B ASR uses eight-second windows, two-second nominal overlap, and six-second nominal stride
-- a 120ms+ measured pause may move the boundary within 50–87.5% near the 75% checkpoint
-- missing pauses fall back to the exact six-second nominal stride
-- 0.5–8s requests use their true length; shorter voiced audio pads only to 0.5 seconds
+- 0.6B ASR closes normal segments only after 1.2 seconds of measured silence and at least 1.5 seconds of voiced audio
+- pauses shorter than 1.2 seconds do not split a phrase; natural boundaries retain 400ms of guard overlap
+- uninterrupted speech uses a 30-second safety limit and the lowest-energy run in the final five seconds
+- every unfinished voiced tail uses its true length; input below the model minimum pads only to 0.5 seconds
+- releasing during silence after a completed phrase does not decode or duplicate a silent tail
 - voiced empty output receives exactly one retry with 250ms trailing silence
 - all MLX passes are serialized and the audio callback never performs inference
-- overlap seams neither duplicate nor lose words; repair audio is capped at 12 seconds
+- natural-pause clauses join directly; safety-limit overlap seams neither duplicate nor lose words, and repair audio is capped at 12 seconds
 - five-minute sessions do not grow process footprint monotonically
 
 ## Professional refinement invariants
