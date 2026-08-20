@@ -4,7 +4,7 @@ All notable changes to Audio Smith are documented here. The project follows [Sem
 
 ## [Unreleased]
 
-The current source preview builds Audio Smith `0.1.6 (7)`. A downloadable DMG will be published only after Developer ID signing and Apple notarization are configured and the binary release gates pass.
+The current source preview builds Audio Smith `0.1.7 (8)`. A downloadable DMG will be published only after Developer ID signing and Apple notarization are configured and the binary release gates pass.
 
 ### Changed
 
@@ -16,6 +16,9 @@ The current source preview builds Audio Smith `0.1.6 (7)`. A downloadable DMG wi
 - Finalization now completes only the remaining ASR phrase, stitches the full transcript, applies deterministic cleanup and pastes it. No second LLM pass runs after the shortcut is released.
 - Added exact migration for the retired `qwen3-asr-0.6b-8bit` and `qwen3-1.7b-4bit-refiner` caches without changing user settings or Skills.
 - Kept the recording overlay waveform-only and the finalization state as a continuously animated progress ring in a single solid capsule.
+- Made the recording capsule reliably join the active application's full-screen Space, reassert its ordering during Space transitions, and follow the focused window across multi-display layouts.
+- Made the capsule temporarily draggable without activating Audio Smith. A new request returns it to bottom center, while in-request Space refreshes preserve the user's temporary position.
+- Removed both window and SwiftUI shadows so the transparent panel does not produce a clipped gray rectangle over light content.
 - Stabilized macOS permission identity by installing and launching only `/Applications/Audio Smith.app`, and made the Settings window return to the front after opening System Settings.
 
 ### Added
@@ -23,7 +26,7 @@ The current source preview builds Audio Smith `0.1.6 (7)`. A downloadable DMG wi
 - Native Apple Silicon menu-bar app with configurable hold-to-dictate shortcuts, a non-activating overlay, automatic clipboard insertion and secure-field fallback.
 - Revision-pinned, SHA-256-verified and resumable model installation with automatic or manual ModelScope/Hugging Face source selection.
 - Standard single-file `SKILL.md` support, multi-selection and an editable AIGC pronunciation starter Skill.
-- Offline-first privacy safeguards, memory diagnostics, 52 unit tests, documentation validation, CI and signed/notarized DMG release automation.
+- Offline-first privacy safeguards, memory diagnostics, 58 unit tests, documentation validation, CI and signed/notarized DMG release automation.
 
 ### Release status
 

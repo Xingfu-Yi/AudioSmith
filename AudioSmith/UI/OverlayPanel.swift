@@ -1,9 +1,13 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 @MainActor
 final class OverlayPanelController {
     private let panel: NSPanel
+    private let logger = Logger(subsystem: "com.xingfuyi.AudioSmith", category: "overlay")
+    private var presentationGeneration: UInt = 0
+    private var visibilityTask: Task<Void, Never>?
 
     init(state: AppState) {
         panel = NonActivatingPanel(
@@ -20,9 +24,26 @@ final class OverlayPanelController {
         // rectangle from appearing around the otherwise transparent overlay.
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        let hostingView = NSHostingView(rootView: OverlayView(state: state))
+        // The panel never activates the app, but it does accept mouse drags so the
+        // user can move it out of the way for the current recording. Its position
+        // is intentionally reset the next time recording starts.
+        panel.ignoresMouseEvents = false
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = true
+        panel.isFloatingPanel = true
+        panel.animationBehavior = .none
+        // `canJoinAllSpaces` alone is not sufficient for another app's full-screen
+        // Space. `canJoinAllApplications` is the macOS 13+ behavior intended for
+        // system overlays that must accompany whichever application is active.
+        panel.collectionBehavior = [
+            .canJoinAllApplications,
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .fullScreenDisallowsTiling,
+            .transient,
+            .ignoresCycle,
+        ]
+        let hostingView = DraggableHostingView(rootView: OverlayView(state: state))
         hostingView.wantsLayer = true
         hostingView.layer?.isOpaque = false
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -30,30 +51,78 @@ final class OverlayPanelController {
         panel.alphaValue = 0
     }
 
-    func show(on screen: NSScreen?) {
-        let screen = screen ?? NSScreen.main ?? NSScreen.screens.first
-        guard let visible = screen?.visibleFrame else { return }
-        let size = panel.frame.size
-        let origin = NSPoint(
-            x: visible.midX - size.width / 2,
-            y: visible.minY + 28
-        )
-        panel.setFrameOrigin(origin)
-        panel.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            panel.animator().alphaValue = 1
+    func show(on screen: NSScreen?, resetPosition: Bool = true) {
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        visibilityTask?.cancel()
+
+        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            logger.error("Could not present overlay because no screen is available")
+            return
+        }
+        present(on: screen, generation: generation, resetPosition: resetPosition)
+
+        // Space/full-screen transitions can finish just after the Fn event. Reassert
+        // ordering twice so the panel follows the destination Space without stealing
+        // focus. Each presentation owns a generation, so stale work cannot resurrect
+        // a panel after recording has ended.
+        visibilityTask = Task { [weak self, weak screen] in
+            for delay in [80, 280] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard !Task.isCancelled, let self, let screen else { return }
+                self.present(on: screen, generation: generation, resetPosition: false)
+            }
         }
     }
 
     func hide() {
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.16
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak panel] in
-            Task { @MainActor in panel?.orderOut(nil) }
-        })
+        presentationGeneration &+= 1
+        visibilityTask?.cancel()
+        visibilityTask = nil
+
+        // Ordering out synchronously avoids a race where an old fade-out completion
+        // hides the panel after a new recording has already started.
+        panel.alphaValue = 0
+        panel.orderOut(nil)
     }
+
+    private func present(on screen: NSScreen, generation: UInt, resetPosition: Bool) {
+        guard generation == presentationGeneration else { return }
+        let visible = screen.visibleFrame
+        if let origin = OverlayPlacement.origin(
+            panelFrame: panel.frame,
+            visibleFrame: visible,
+            resetPosition: resetPosition
+        ) {
+            panel.setFrameOrigin(origin)
+        }
+        panel.level = .statusBar
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        logger.debug("Overlay presented on \(screen.localizedName, privacy: .public); visible=\(self.panel.isVisible, privacy: .public)")
+    }
+}
+
+enum OverlayPlacement {
+    /// Returns a new origin when the panel should be repositioned. `nil` means the
+    /// current dragged location remains valid and must be preserved.
+    static func origin(
+        panelFrame: NSRect,
+        visibleFrame: NSRect,
+        resetPosition: Bool
+    ) -> NSPoint? {
+        if resetPosition || !panelFrame.intersects(visibleFrame) {
+            return NSPoint(
+                x: visibleFrame.midX - panelFrame.width / 2,
+                y: visibleFrame.minY + 28
+            )
+        }
+        return nil
+    }
+}
+
+private final class DraggableHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 private final class NonActivatingPanel: NSPanel {
@@ -93,7 +162,9 @@ private struct OverlayView: View {
             Capsule()
                 .fill(Color.black.opacity(0.94))
         }
-        .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
+        // Do not add a SwiftUI shadow here. The capsule lives inside a transparent
+        // rectangular NSPanel, so a blurred shadow is clipped at that rectangle's
+        // edges and reads as a gray box on light backgrounds.
         .padding(6)
     }
 

@@ -5,6 +5,9 @@
 - default Fn and alternate shortcut press/release, persistence, accidental short press, chord pass-through
 - recording and finalizing `Esc` cancellation
 - sleep/wake, microphone changes, displays, full-screen apps, and Spaces
+- overlay appears in another application's full-screen Space and survives rapid consecutive requests without a stale hide race
+- overlay targets the focused window's display, preserves a temporary drag during the request, resets on the next request, and recovers from an off-screen frame
+- overlay remains a single black capsule over light content, with no rectangular window or clipped SwiftUI shadow
 - Notes, Chrome, VS Code, Terminal, WeChat, and secure fields
 - permission denial, revocation, and re-grant
 - Skill selection and edits before, during, and after a request
