@@ -22,6 +22,10 @@ flowchart LR
 
 The panel never shows provisional text. Release changes the state to `finalizing` before any model await, freezes and dims the waveform, and starts a time-driven progress ring. It waits only for the unfinished ASR tail and cleanup; there is no second-model stage.
 
+The borderless non-activating panel joins every application and Space, including another application's full-screen Space. Presentation is generation-scoped so delayed ordering work from an earlier request cannot hide or resurrect a newer one. Space and display changes reassert ordering without taking focus. Accessibility window coordinates select the display with the largest target-window intersection, with the keyboard-focused display as fallback.
+
+The hosting view accepts background drags while the panel remains unable to become key or main. Initial presentation centers it 28 points above the active display's visible bottom edge. Reordering during the same request preserves a valid dragged frame; a new request or an off-screen frame restores the default. Both NSPanel and SwiftUI shadows are disabled so all pixels outside the solid capsule remain transparent.
+
 ## State machine
 
 ```text

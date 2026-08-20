@@ -16,7 +16,7 @@
 
 Audio Smith is an early source preview, not a finished binary release. It uses one Qwen3-ASR-1.7B 8-bit model for pause-segmented, context-aware recognition. There is no second text model and no post-dictation LLM rewrite. The goals are mixed Chinese/English speech, a strict 5GB memory release gate, and compact Markdown Skills for specialist terminology.
 
-The source builds and the core unit tests pass on the development Mac. The project has not yet completed its 24GB-device, five-minute long-context, public accuracy, signing, or notarization gates. There is therefore no download button, tag, or DMG yet, and this README does not claim accuracy that the public benchmark has not established.
+The current checkout builds Audio Smith `0.1.7 (8)`, and all 58 unit tests pass on the development Mac. The project has not yet completed its 24GB-device, five-minute long-context, public accuracy, signing, or notarization gates. There is therefore no download button, tag, or DMG yet, and this README does not claim accuracy that the public benchmark has not established.
 
 ## Requirements
 
@@ -68,6 +68,8 @@ AUDIO_SMITH_ASR_MODEL_PATH=/absolute/path/to/Qwen3-ASR-1.7B-8bit \
 5. Skill-aware canonical spelling repair plus deterministic spacing and punctuation cleanup runs once. The final transcript stays on the clipboard and is pasted back only when the original target is safe and still valid.
 
 `Esc` cancels the active request. The default shortcut is `Fn`; right Option, right Control, and right Command are also available. Combining `Fn` with F1–F12, or combining another selected modifier with a key, cancels dictation and leaves the original shortcut available. See [Architecture](docs/ARCHITECTURE.md) for the data flow, state machine, pause segmentation, and memory gates.
+
+The waveform capsule follows the focused window into full-screen Spaces and onto the correct display. It can be dragged out of the way without activating Audio Smith or moving keyboard focus. That position lasts only for the current request; the next dictation returns to bottom center. The area outside the solid black capsule is fully transparent and has no rectangular window shadow.
 
 ## Skills
 

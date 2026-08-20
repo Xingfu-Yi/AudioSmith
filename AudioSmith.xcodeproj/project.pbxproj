@@ -32,12 +32,14 @@
 		994183A30603CA316A559CBF /* MLXAudioSTT in Frameworks */ = {isa = PBXBuildFile; productRef = 842177AF54728EE5306C7E45 /* MLXAudioSTT */; };
 		9E86CFB5E258CD6FD7107386 /* DomainSkillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8260C6E95774E6C066F7A1F6 /* DomainSkillTests.swift */; };
 		9F6193FA1F00E853D6BBC95D /* DictationHotkey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34D718EACE798D60F38145B /* DictationHotkey.swift */; };
+		A8B420FF95EA8358DBBE6D98 /* OverlayPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD917BA2DF5E79F472EFAA6 /* OverlayPlacementTests.swift */; };
 		AD188C12C7BBC026E4E539D3 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D50BD956C8AB994762A24D7 /* ModelManager.swift */; };
 		B1CCD74297878DCBCB1F566E /* TextCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 179ED0A37BB0BE748D69842B /* TextCleaner.swift */; };
 		CC33E54720FE9E183D56F54A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96330C4FFF99628520BEF49E /* SettingsView.swift */; };
 		E1B8656F9D2D5F429450AD2D /* AudioSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803F0ED70CB2D3B78BD0D20C /* AudioSmithApp.swift */; };
 		E45DEC7BB6DDE75106A95208 /* Skills in Resources */ = {isa = PBXBuildFile; fileRef = 9E03FB45D72A4375457C6DE9 /* Skills */; };
 		F0F6B04E6D3D03DAF0DF39F0 /* ScreenLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2229D722D126422E8BD43D5D /* ScreenLocator.swift */; };
+		F4FD21D65AE59E991C48874B /* ScreenLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561055B0190C0C6166EC289 /* ScreenLocatorTests.swift */; };
 		FBAABC84006E46D7EC343989 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = 3033D95AB320C8C83A70A0B2 /* THIRD_PARTY_NOTICES.md */; };
 /* End PBXBuildFile section */
 
@@ -70,6 +72,7 @@
 		6AAC366939AC45C5286B376C /* TextInserter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInserter.swift; sourceTree = "<group>"; };
 		803F0ED70CB2D3B78BD0D20C /* AudioSmithApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSmithApp.swift; sourceTree = "<group>"; };
 		8260C6E95774E6C066F7A1F6 /* DomainSkillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainSkillTests.swift; sourceTree = "<group>"; };
+		8561055B0190C0C6166EC289 /* ScreenLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLocatorTests.swift; sourceTree = "<group>"; };
 		953CB3BF54025CFEB2102A6B /* ModelManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManifest.swift; sourceTree = "<group>"; };
 		96330C4FFF99628520BEF49E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		9E03FB45D72A4375457C6DE9 /* Skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Skills; path = Examples/Skills; sourceTree = SOURCE_ROOT; };
@@ -82,6 +85,7 @@
 		C2C2DCFDEBAE48B6C4AA3A3F /* TextCleanerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextCleanerTests.swift; sourceTree = "<group>"; };
 		E2FBE51187CC801868A83713 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
 		E3D185EE9B2FC8B84A6A8594 /* AudioSmithTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AudioSmithTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		ECD917BA2DF5E79F472EFAA6 /* OverlayPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayPlacementTests.swift; sourceTree = "<group>"; };
 		F5D34224EDADE7E6A543FCB2 /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		FE7EA6EE09D1E2F7ACAED29B /* DictationHotkeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHotkeyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -198,7 +202,9 @@
 				8260C6E95774E6C066F7A1F6 /* DomainSkillTests.swift */,
 				BBB46A34EFEACE9B88D4FF97 /* ModelDownloadTests.swift */,
 				ADDF31986AB83A9F9B2C0D3A /* ModelManifestTests.swift */,
+				ECD917BA2DF5E79F472EFAA6 /* OverlayPlacementTests.swift */,
 				10895756A000077987FC383C /* RollingTranscriptTests.swift */,
+				8561055B0190C0C6166EC289 /* ScreenLocatorTests.swift */,
 				C2C2DCFDEBAE48B6C4AA3A3F /* TextCleanerTests.swift */,
 			);
 			path = AudioSmithTests;
@@ -378,7 +384,9 @@
 				9E86CFB5E258CD6FD7107386 /* DomainSkillTests.swift in Sources */,
 				320326E4CFC8FAF4FBF8C605 /* ModelDownloadTests.swift in Sources */,
 				641CAD6A15C2CB8CCC063839 /* ModelManifestTests.swift in Sources */,
+				A8B420FF95EA8358DBBE6D98 /* OverlayPlacementTests.swift in Sources */,
 				4B5B9125EAB4ED429E893777 /* RollingTranscriptTests.swift in Sources */,
+				F4FD21D65AE59E991C48874B /* ScreenLocatorTests.swift in Sources */,
 				5654F9EC420CA3E8AAD30139 /* TextCleanerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -402,7 +410,7 @@
 				CODE_SIGN_ENTITLEMENTS = AudioSmith/Resources/AudioSmith.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_APP_SANDBOX = NO;
 				EXECUTABLE_NAME = AudioSmith;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -411,7 +419,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.6;
+				MARKETING_VERSION = 0.1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.xingfuyi.AudioSmith;
 				PRODUCT_MODULE_NAME = AudioSmith;
 				PRODUCT_NAME = "Audio Smith";
@@ -504,7 +512,7 @@
 				CODE_SIGN_ENTITLEMENTS = AudioSmith/Resources/AudioSmith.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_APP_SANDBOX = NO;
 				EXECUTABLE_NAME = AudioSmith;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -513,7 +521,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.6;
+				MARKETING_VERSION = 0.1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.xingfuyi.AudioSmith.TestHost;
 				PRODUCT_MODULE_NAME = AudioSmith;
 				PRODUCT_NAME = "Audio Smith";
@@ -678,7 +686,7 @@
 				CODE_SIGN_ENTITLEMENTS = AudioSmith/Resources/AudioSmith.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_APP_SANDBOX = NO;
 				EXECUTABLE_NAME = AudioSmith;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -687,7 +695,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.6;
+				MARKETING_VERSION = 0.1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.xingfuyi.AudioSmith;
 				PRODUCT_MODULE_NAME = AudioSmith;
 				PRODUCT_NAME = "Audio Smith";

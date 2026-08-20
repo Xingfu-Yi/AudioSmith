@@ -361,6 +361,20 @@ final class AppRuntime {
                 self?.configureHotkey()
             }
         })
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor [weak self] in self?.refreshOverlayForCurrentSpace() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor [weak self] in self?.refreshOverlayForCurrentSpace() }
+        })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -368,5 +382,13 @@ final class AppRuntime {
         ) { _ in
             Task { @MainActor [weak self] in self?.refreshPermissions() }
         })
+    }
+
+    private func refreshOverlayForCurrentSpace() {
+        guard state.phase == .recording || state.phase == .finalizing else { return }
+        overlay.show(
+            on: ScreenLocator.screenForFocusedWindow(pid: targetApplication?.pid),
+            resetPosition: false
+        )
     }
 }
